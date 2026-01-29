@@ -10,6 +10,7 @@ struct CalibrationView: View {
     @State private var draggingPointIndex: Int? = nil
     @State private var pointDragOffset: CGSize = .zero
     @State private var showCompleteBanner = false
+    @State private var showAbout = false
     
     enum DistanceUnit: String, CaseIterable {
         case meters = "m"
@@ -42,10 +43,43 @@ struct CalibrationView: View {
                             handleTap(at: value.location)
                         }
                 )
+                .allowsHitTesting(appState.calibrationState != .complete)
             
+            // Line between points
+            if appState.calibrationPoints.count == 2 {
+                CalibrationLine(
+                    from: displayPosition(for: 0, basePoint: appState.calibrationPoints[0]),
+                    to: displayPosition(for: 1, basePoint: appState.calibrationPoints[1])
+                )
+                .allowsHitTesting(false)
+            }
+
+            // Distance label at midpoint of calibration line
+            if appState.calibrationState == .complete && appState.calibrationPoints.count == 2 {
+                let p1 = displayPosition(for: 0, basePoint: appState.calibrationPoints[0])
+                let p2 = displayPosition(for: 1, basePoint: appState.calibrationPoints[1])
+                let angle = atan2(p2.y - p1.y, p2.x - p1.x)
+                // Keep text readable: flip if label would be upside-down
+                let correctedAngle = (angle > .pi / 2 || angle < -.pi / 2)
+                    ? angle + .pi : angle
+                Text("\(distanceInput) \(selectedUnit.rawValue)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(Color.yellow)
+                    .cornerRadius(14)
+                    .rotationEffect(Angle(radians: correctedAngle))
+                    .position(x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2)
+                    .onTapGesture {
+                        showDistanceInput = true
+                    }
+            }
+
             // Calibration points visualization
             ForEach(Array(appState.calibrationPoints.enumerated()), id: \.offset) { index, point in
                 CalibrationPointMarker(index: index + 1)
+                    .contentShape(Circle().size(width: 34, height: 34).offset(x: -5, y: -5))
                     .position(displayPosition(for: index, basePoint: point))
                     .gesture(
                         appState.calibrationState == .complete ?
@@ -66,64 +100,100 @@ struct CalibrationView: View {
                         : nil
                     )
             }
-
-            // Line between points
-            if appState.calibrationPoints.count == 2 {
-                CalibrationLine(
-                    from: displayPosition(for: 0, basePoint: appState.calibrationPoints[0]),
-                    to: displayPosition(for: 1, basePoint: appState.calibrationPoints[1])
-                )
-            }
             
             // Instructions overlay
             VStack {
                 // Top instruction banner
                 if appState.calibrationState != .complete || showCompleteBanner {
                     InstructionBanner(text: instructionText)
-                        .padding(.top, 60)
+                        .padding(.top, 20)
                         .transition(.opacity)
                 }
                 
                 Spacer()
                 
                 // Bottom controls
-                VStack(spacing: 16) {
-                    if appState.calibrationState == .complete {
-                        calibrationCompleteView
+                HStack(alignment: .bottom) {
+                    // Info button (bottom-left)
+                    Button(action: { showAbout = true }) {
+                        Text("i")
+                            .font(.system(size: 13, weight: .semibold, design: .serif))
+                            .italic()
+                            .foregroundColor(.white)
+                            .frame(width: 22, height: 22)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
                     }
-                    
-                    HStack(spacing: 20) {
-                        // Reset button
-                        Button(action: {
-                            appState.resetCalibration()
-                        }) {
-                            Label("Reset", systemImage: "arrow.counterclockwise")
-                                .font(.headline)
-                                .padding(.horizontal, 24)
-                                .padding(.vertical, 12)
-                                .background(.ultraThinMaterial)
-                                .cornerRadius(25)
+
+                    Spacer()
+                }
+                .overlay {
+                    // Centered calibration controls
+                    VStack(spacing: 12) {
+                        if appState.calibrationState == .complete {
+                            calibrationCompleteView
                         }
-                        
-                        // Continue button (when calibration complete)
-                        if appState.isCalibrated {
+
+                        HStack(spacing: 20) {
+                            // Reset button
                             Button(action: {
-                                appState.proceedToOverlay()
+                                appState.resetCalibration()
                             }) {
-                                Label("Continue", systemImage: "arrow.right")
+                                Label("Reset", systemImage: "arrow.counterclockwise")
                                     .font(.headline)
-                                    .padding(.horizontal, 24)
+                                    .frame(minWidth: 130)
                                     .padding(.vertical, 12)
-                                    .background(Color.green)
-                                    .foregroundColor(.white)
+                                    .background(.ultraThinMaterial)
                                     .cornerRadius(25)
+                            }
+
+                            // Continue button (when calibration complete)
+                            if appState.isCalibrated {
+                                Button(action: {
+                                    appState.proceedToOverlay()
+                                }) {
+                                    Label("Continue", systemImage: "arrow.right")
+                                        .font(.headline)
+                                        .frame(minWidth: 130)
+                                        .padding(.vertical, 12)
+                                        .background(Color.green)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(25)
+                                }
                             }
                         }
                     }
                 }
-                .padding(.bottom, 50)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
             
+            // About overlay
+            if showAbout {
+                VStack(spacing: 0) {
+                    Spacer()
+                    VStack(spacing: 16) {
+                        Text("SpeedWall Overlay")
+                            .font(.title2.bold())
+                        Text("1. Calibrate to a known distance \n\n 2. Speed-Route Overlay for easy setup.")
+                            .font(.subheadline)
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.secondary)
+                        Divider()
+                        Text("Version 1.0")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Button("Close") { showAbout = false }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding(30)
+                    .background(.regularMaterial)
+                    .cornerRadius(20)
+                    .padding()
+                }
+                .background(Color.black.opacity(0.5))
+            }
+
             // Distance input sheet
             if showDistanceInput {
                 DistanceInputSheet(
@@ -153,12 +223,15 @@ struct CalibrationView: View {
     
     private var calibrationCompleteView: some View {
         Text(String(format: "%.1f px/m", appState.pixelsPerMeter))
-            .font(.headline.monospacedDigit())
+            .font(.system(size: 12, weight: .semibold).monospacedDigit())
             .foregroundColor(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
             .background(Color.black.opacity(0.7))
-            .cornerRadius(20)
+            .cornerRadius(14)
+            .onTapGesture {
+                showDistanceInput = true
+            }
     }
     
     // MARK: - Computed Properties
@@ -166,9 +239,9 @@ struct CalibrationView: View {
     private var instructionText: String {
         switch appState.calibrationState {
         case .waitingForFirstPoint:
-            return "Tap the FIRST point of a known distance"
+            return "Tap the first point of a known distance"
         case .waitingForSecondPoint:
-            return "Tap the SECOND point"
+            return "Tap the second point"
         case .waitingForDistance:
             return "Enter the distance between points"
         case .complete:
@@ -227,34 +300,34 @@ struct CalibrationPointMarker: View {
         ZStack {
             // Outer ring
             Circle()
-                .stroke(Color.yellow, lineWidth: 3)
-                .frame(width: 50, height: 50)
-            
+                .stroke(Color.yellow, lineWidth: 1.5)
+                .frame(width: 25, height: 25)
+
             // Inner circle
             Circle()
                 .fill(Color.yellow.opacity(0.3))
-                .frame(width: 44, height: 44)
-            
+                .frame(width: 22, height: 22)
+
             // Crosshair
             VStack {
                 Rectangle()
                     .fill(Color.yellow)
-                    .frame(width: 2, height: 20)
+                    .frame(width: 1, height: 10)
             }
             HStack {
                 Rectangle()
                     .fill(Color.yellow)
-                    .frame(width: 20, height: 2)
+                    .frame(width: 10, height: 1)
             }
-            
+
             // Number label
             Text("\(index)")
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: 7, weight: .bold))
                 .foregroundColor(.black)
-                .padding(6)
+                .padding(3)
                 .background(Color.yellow)
                 .clipShape(Circle())
-                .offset(x: 25, y: -25)
+                .offset(x: 13, y: -13)
         }
     }
 }

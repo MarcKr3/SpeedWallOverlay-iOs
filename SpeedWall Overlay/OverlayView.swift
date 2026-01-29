@@ -14,29 +14,57 @@ struct OverlayView: View {
     // Controls visibility
     @State private var showControls: Bool = true
 
+    // Flash feedback for screenshot
+    @State private var showFlash: Bool = false
+
+    // Initial position flag
+    @State private var hasSetInitialPosition = false
+
     var body: some View {
         GeometryReader { geometry in
             let screenWidth = geometry.size.width
+            let screenHeight = geometry.size.height
             let renderedHeight = screenWidth * (imageHeight / imageWidth)
 
-            ZStack {
-                // Three-layer overlay stack
-                overlayLayers(screenWidth: screenWidth, renderedHeight: renderedHeight)
-                    .opacity(appState.overlayOpacity)
-                    .offset(
-                        x: offset.width + dragOffset.width,
-                        y: offset.height + dragOffset.height
-                    )
-                    .gesture(panGesture)
-
-                // Controls
-                if showControls {
-                    controlsOverlay()
+            overlayLayers(screenWidth: screenWidth, renderedHeight: renderedHeight)
+                .offset(
+                    x: offset.width + dragOffset.width,
+                    y: offset.height + dragOffset.height
+                )
+                .rotation3DEffect(
+                    .degrees(appState.verticalTilt),
+                    axis: (x: 1, y: 0, z: 0),
+                    perspective: 0.5
+                )
+                .rotation3DEffect(
+                    .degrees(appState.horizontalTilt),
+                    axis: (x: 0, y: 1, z: 0),
+                    perspective: 0.5
+                )
+                .gesture(panGesture)
+                .frame(width: screenWidth, height: screenHeight)
+                .overlay {
+                    if showControls {
+                        controlsOverlay()
+                    }
+                    if showFlash {
+                        Color.white
+                            .ignoresSafeArea()
+                            .allowsHitTesting(false)
+                    }
                 }
-            }
-            .onTapGesture(count: 2) {
-                withAnimation { showControls.toggle() }
-            }
+                .onTapGesture(count: 2) {
+                    withAnimation { showControls.toggle() }
+                }
+                .onAppear {
+                    // Default the system color picker to the Spectrum tab
+                    UserDefaults.standard.set(1, forKey: "UICPSelectedCustomSegment")
+
+                    guard !hasSetInitialPosition else { return }
+                    hasSetInitialPosition = true
+                    let renderedHeight = screenWidth * (imageHeight / imageWidth)
+                    offset.height = screenHeight / 3 - renderedHeight / 2
+                }
         }
     }
 
@@ -48,21 +76,27 @@ struct OverlayView: View {
             // Holds layer (always visible)
             if let img = UIImage(named: "overlay") {
                 Image(uiImage: img)
+                    .renderingMode(.template)
                     .resizable()
+                    .foregroundColor(appState.overlayColor)
                     .frame(width: screenWidth, height: renderedHeight)
             }
 
             // Grid layer (toggleable)
             if appState.showGrid, let img = UIImage(named: "grid") {
                 Image(uiImage: img)
+                    .renderingMode(.template)
                     .resizable()
+                    .foregroundColor(appState.overlayColor)
                     .frame(width: screenWidth, height: renderedHeight)
             }
 
             // Labels layer (toggleable)
             if appState.showLabels, let img = UIImage(named: "labels") {
                 Image(uiImage: img)
+                    .renderingMode(.template)
                     .resizable()
+                    .foregroundColor(appState.overlayColor)
                     .frame(width: screenWidth, height: renderedHeight)
             }
         }
@@ -86,11 +120,16 @@ struct OverlayView: View {
                 Spacer()
 
                 // Layer toggles
-                HStack(spacing: 12) {
+                HStack(spacing: 1) {
+                    ColorPicker("", selection: $appState.overlayColor, supportsOpacity: false)
+                        .labelsHidden()
+                        .scaleEffect(0.9)
+                        .frame(width: 40, height: 40)
+
                     Button(action: { appState.showGrid.toggle() }) {
                         Image(systemName: "grid")
                             .font(.title2)
-                            .padding(12)
+                            .padding(8)
                             .background(appState.showGrid ? Color.yellow : Color.clear)
                             .background(.ultraThinMaterial)
                             .clipShape(Circle())
@@ -105,54 +144,74 @@ struct OverlayView: View {
                             .clipShape(Circle())
                     }
                 }
-
-                Spacer()
-
-                // Info display
-                Text(String(format: "Opacity: %.0f%%", appState.overlayOpacity * 100))
-                    .font(.caption.monospacedDigit())
-                    .padding(8)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(8)
             }
             .padding(.horizontal)
-            .padding(.top, 60)
+            .padding(.top, 10)
 
             Spacer()
 
             // Bottom controls
-            VStack(spacing: 16) {
-                // Opacity slider
-                VStack(spacing: 4) {
-                    Text("Opacity")
+            VStack(spacing: 12) {
+                HStack {
+                    Button(action: { takeScreenshot() }) {
+                        ZStack {
+                            Circle()
+                                .stroke(Color.white, lineWidth: 3)
+                                .frame(width: 35, height: 35)
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 28, height: 28)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.leading, 10)
+
+                // Horizontal tilt slider
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.left.and.right")
                         .font(.caption)
                         .foregroundColor(.white)
+                        .frame(width: 20)
 
-                    Slider(value: $appState.overlayOpacity, in: 0.1...1.0)
-                        .tint(.yellow)
-                        .padding(.horizontal, 40)
-                }
+                    Slider(
+                        value: $appState.horizontalTilt,
+                        in: -45...45,
+                        step: 0.5
+                    )
+                    .tint(.yellow)
 
-                // Quick actions
-                HStack(spacing: 20) {
-                    Button(action: resetPosition) {
-                        Label("Reset", systemImage: "arrow.counterclockwise")
-                            .font(.subheadline)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(.ultraThinMaterial)
-                            .cornerRadius(20)
-                    }
-
-                    Button(action: centerOverlay) {
-                        Label("Center", systemImage: "viewfinder")
-                            .font(.subheadline)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(.ultraThinMaterial)
-                            .cornerRadius(20)
+                    Button(action: { appState.horizontalTilt = 0 }) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.caption)
+                            .foregroundColor(.white)
+                            .frame(width: 20)
                     }
                 }
+                .padding(.horizontal)
+
+                // Vertical tilt slider
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.up.and.down")
+                        .font(.caption)
+                        .foregroundColor(.white)
+                        .frame(width: 20)
+
+                    Slider(
+                        value: $appState.verticalTilt,
+                        in: -45...45,
+                        step: 0.5
+                    )
+                    .tint(.yellow)
+
+                    Button(action: { appState.verticalTilt = 0 }) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.caption)
+                            .foregroundColor(.white)
+                            .frame(width: 20)
+                    }
+                }
+                .padding(.horizontal)
 
                 Text("Double-tap to hide controls")
                     .font(.caption2)
@@ -170,6 +229,29 @@ struct OverlayView: View {
         }
     }
 
+    // MARK: - Screenshot
+
+    private func takeScreenshot() {
+        showControls = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = windowScene.windows.first {
+                let renderer = UIGraphicsImageRenderer(size: window.bounds.size)
+                let image = renderer.image { ctx in
+                    window.layer.render(in: ctx.cgContext)
+                }
+                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+            }
+            showFlash = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    showFlash = false
+                }
+                showControls = true
+            }
+        }
+    }
+
     // MARK: - Gestures
 
     private var panGesture: some Gesture {
@@ -184,21 +266,6 @@ struct OverlayView: View {
             }
     }
 
-    // MARK: - Actions
-
-    private func resetPosition() {
-        withAnimation {
-            offset = .zero
-            dragOffset = .zero
-        }
-    }
-
-    private func centerOverlay() {
-        withAnimation {
-            offset = .zero
-            dragOffset = .zero
-        }
-    }
 }
 
 #Preview {

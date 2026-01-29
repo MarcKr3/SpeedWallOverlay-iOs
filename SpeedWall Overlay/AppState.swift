@@ -43,8 +43,12 @@ class AppState: ObservableObject {
     @Published var showGrid: Bool = false
     @Published var showLabels: Bool = false
 
-    /// Opacity of the overlay
-    @Published var overlayOpacity: Double = 0.5
+    /// Overlay color for image layers
+    @Published var overlayColor: Color = .black
+
+    /// Perspective tilt adjustments (degrees)
+    @Published var horizontalTilt: Double = 0
+    @Published var verticalTilt: Double = 0
 
     // MARK: - Internal Properties
 
