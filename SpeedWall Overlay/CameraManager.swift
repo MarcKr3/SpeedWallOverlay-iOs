@@ -29,15 +29,15 @@ class CameraManager: NSObject, ObservableObject {
         var errorDescription: String? {
             switch self {
             case .cameraUnavailable:
-                return "Camera is not available on this device"
+                return NSLocalizedString("Camera is not available on this device", comment: "Camera error: unavailable")
             case .cannotAddInput:
-                return "Cannot access camera input"
+                return NSLocalizedString("Cannot access camera input", comment: "Camera error: input")
             case .cannotAddOutput:
-                return "Cannot configure camera output"
+                return NSLocalizedString("Cannot configure camera output", comment: "Camera error: output")
             case .permissionDenied:
-                return "Camera permission was denied. Please enable in Settings."
+                return NSLocalizedString("Camera permission was denied. Please enable in Settings.", comment: "Camera error: permission denied")
             case .unknown:
-                return "An unknown error occurred"
+                return NSLocalizedString("An unknown error occurred", comment: "Camera error: unknown")
             }
         }
     }

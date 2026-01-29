@@ -39,6 +39,9 @@ struct ContentView: View {
             }
             .onChangeCompat(of: geometry.size) { newSize in
                 appState.screenSize = newSize
+                if appState.mode == .calibration {
+                    appState.resetCalibration()
+                }
             }
         }
         .task {
@@ -53,7 +56,7 @@ struct ContentView: View {
                 cameraManager.error = nil
             }
         } message: {
-            Text(cameraManager.error?.localizedDescription ?? "Unknown error")
+            Text(cameraManager.error?.localizedDescription ?? NSLocalizedString("Unknown error", comment: "Fallback error message"))
         }
     }
 }

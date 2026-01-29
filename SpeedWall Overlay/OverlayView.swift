@@ -1,4 +1,5 @@
 import SwiftUI
+import Photos
 
 struct OverlayView: View {
     @EnvironmentObject var appState: AppState
@@ -19,6 +20,9 @@ struct OverlayView: View {
 
     // Initial position flag
     @State private var hasSetInitialPosition = false
+
+    // Screenshot error alert
+    @State private var showSaveError = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -41,7 +45,7 @@ struct OverlayView: View {
                     axis: (x: 0, y: 1, z: 0),
                     perspective: 0.5
                 )
-                .gesture(panGesture)
+                .gesture(panGesture(screenWidth: screenWidth, screenHeight: screenHeight))
                 .frame(width: screenWidth, height: screenHeight)
                 .overlay {
                     if showControls {
@@ -64,6 +68,18 @@ struct OverlayView: View {
                     hasSetInitialPosition = true
                     let renderedHeight = screenWidth * (imageHeight / imageWidth)
                     offset.height = screenHeight / 3 - renderedHeight / 2
+                    clampOffset(screenWidth: screenWidth, screenHeight: screenHeight)
+                }
+                .onChange(of: geometry.size) { _ in
+                    clampOffset(screenWidth: geometry.size.width, screenHeight: geometry.size.height)
+                }
+                .alert("Screenshot Failed", isPresented: $showSaveError) {
+                    Button("Settings") {
+                        UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
+                    }
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text("Allow photo library access in Settings to save screenshots.")
                 }
         }
     }
@@ -116,6 +132,7 @@ struct OverlayView: View {
                         .background(.ultraThinMaterial)
                         .clipShape(Circle())
                 }
+                .accessibilityLabel("Back to calibration")
 
                 Spacer()
 
@@ -125,6 +142,7 @@ struct OverlayView: View {
                         .labelsHidden()
                         .scaleEffect(0.9)
                         .frame(width: 40, height: 40)
+                        .accessibilityLabel("Overlay color")
 
                     Button(action: { appState.showGrid.toggle() }) {
                         Image(systemName: "grid")
@@ -134,6 +152,7 @@ struct OverlayView: View {
                             .background(.ultraThinMaterial)
                             .clipShape(Circle())
                     }
+                    .accessibilityLabel(appState.showGrid ? "Hide grid" : "Show grid")
 
                     Button(action: { appState.showLabels.toggle() }) {
                         Image(systemName: "ruler")
@@ -143,6 +162,7 @@ struct OverlayView: View {
                             .background(.ultraThinMaterial)
                             .clipShape(Circle())
                     }
+                    .accessibilityLabel(appState.showLabels ? "Hide labels" : "Show labels")
                 }
             }
             .padding(.horizontal)
@@ -163,6 +183,7 @@ struct OverlayView: View {
                                 .frame(width: 28, height: 28)
                         }
                     }
+                    .accessibilityLabel("Take screenshot")
                     Spacer()
                 }
                 .padding(.leading, 10)
@@ -173,6 +194,7 @@ struct OverlayView: View {
                         .font(.caption)
                         .foregroundColor(.white)
                         .frame(width: 20)
+                        .accessibilityHidden(true)
 
                     Slider(
                         value: $appState.horizontalTilt,
@@ -180,6 +202,7 @@ struct OverlayView: View {
                         step: 0.5
                     )
                     .tint(.yellow)
+                    .accessibilityLabel("Horizontal tilt")
 
                     Button(action: { appState.horizontalTilt = 0 }) {
                         Image(systemName: "arrow.counterclockwise")
@@ -187,6 +210,7 @@ struct OverlayView: View {
                             .foregroundColor(.white)
                             .frame(width: 20)
                     }
+                    .accessibilityLabel("Reset horizontal tilt")
                 }
                 .padding(.horizontal)
 
@@ -196,6 +220,7 @@ struct OverlayView: View {
                         .font(.caption)
                         .foregroundColor(.white)
                         .frame(width: 20)
+                        .accessibilityHidden(true)
 
                     Slider(
                         value: $appState.verticalTilt,
@@ -203,6 +228,7 @@ struct OverlayView: View {
                         step: 0.5
                     )
                     .tint(.yellow)
+                    .accessibilityLabel("Vertical tilt")
 
                     Button(action: { appState.verticalTilt = 0 }) {
                         Image(systemName: "arrow.counterclockwise")
@@ -210,6 +236,7 @@ struct OverlayView: View {
                             .foregroundColor(.white)
                             .frame(width: 20)
                     }
+                    .accessibilityLabel("Reset vertical tilt")
                 }
                 .padding(.horizontal)
 
@@ -240,7 +267,17 @@ struct OverlayView: View {
                 let image = renderer.image { ctx in
                     window.layer.render(in: ctx.cgContext)
                 }
-                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                guard let imageData = image.pngData() else { return }
+                PHPhotoLibrary.shared().performChanges({
+                    let request = PHAssetCreationRequest.forAsset()
+                    request.addResource(with: .photo, data: imageData, options: nil)
+                }) { success, error in
+                    if !success {
+                        DispatchQueue.main.async {
+                            showSaveError = true
+                        }
+                    }
+                }
             }
             showFlash = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
@@ -252,9 +289,25 @@ struct OverlayView: View {
         }
     }
 
+    // MARK: - Clamping
+
+    private func clampOffset(screenWidth: CGFloat, screenHeight: CGFloat) {
+        let renderedHeight = screenWidth * (imageHeight / imageWidth)
+        let margin: CGFloat = 100
+
+        // Horizontal: overlay is screenWidth wide, centered. Keep `margin` visible.
+        let maxX = screenWidth - margin
+        offset.width = min(max(offset.width, -maxX), maxX)
+
+        // Vertical: overlay (renderedHeight) is centered in screen (screenHeight).
+        // Keep at least `margin` of overlay visible vertically.
+        let maxY = (screenHeight + renderedHeight) / 2 - margin
+        offset.height = min(max(offset.height, -maxY), maxY)
+    }
+
     // MARK: - Gestures
 
-    private var panGesture: some Gesture {
+    private func panGesture(screenWidth: CGFloat, screenHeight: CGFloat) -> some Gesture {
         DragGesture()
             .onChanged { value in
                 dragOffset = value.translation
@@ -263,6 +316,7 @@ struct OverlayView: View {
                 offset.width += value.translation.width
                 offset.height += value.translation.height
                 dragOffset = .zero
+                clampOffset(screenWidth: screenWidth, screenHeight: screenHeight)
             }
     }
 

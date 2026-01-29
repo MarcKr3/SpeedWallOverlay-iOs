@@ -114,19 +114,27 @@ struct CalibrationView: View {
                 
                 // Bottom controls
                 HStack(alignment: .bottom) {
-                    // Info button (bottom-left)
-                    Button(action: { showAbout = true }) {
-                        Text("i")
-                            .font(.system(size: 13, weight: .semibold, design: .serif))
-                            .italic()
-                            .foregroundColor(.white)
-                            .frame(width: 22, height: 22)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
+                    // Info button (bottom-left) — fades out after first marker
+                    if appState.calibrationState == .waitingForFirstPoint {
+                        Button(action: { showAbout = true }) {
+                            Text("i")
+                                .font(.system(size: 13, weight: .semibold, design: .serif))
+                                .italic()
+                                .foregroundColor(.white)
+                                .frame(width: 22, height: 22)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                        }
+                        .frame(minWidth: 100, minHeight: 100)
+                        .contentShape(Circle())
+                        .accessibilityLabel("About this app")
+                        .transition(.opacity)
                     }
 
                     Spacer()
                 }
+                .padding(4)
+                .animation(.easeOut(duration: 0.3), value: appState.calibrationState)
                 .overlay {
                     // Centered calibration controls
                     VStack(spacing: 12) {
@@ -236,7 +244,7 @@ struct CalibrationView: View {
     
     // MARK: - Computed Properties
     
-    private var instructionText: String {
+    private var instructionText: LocalizedStringKey {
         switch appState.calibrationState {
         case .waitingForFirstPoint:
             return "Tap the first point of a known distance"
@@ -356,8 +364,8 @@ struct CalibrationLine: View {
 // MARK: - Instruction Banner
 
 struct InstructionBanner: View {
-    let text: String
-    
+    let text: LocalizedStringKey
+
     var body: some View {
         Text(text)
             .font(.headline)
