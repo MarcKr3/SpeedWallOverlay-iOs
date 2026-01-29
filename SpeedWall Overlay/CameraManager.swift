@@ -1,6 +1,7 @@
 import AVFoundation
 import UIKit
 import SwiftUI
+import Combine
 
 /// Manages the camera session and preview
 class CameraManager: NSObject, ObservableObject {

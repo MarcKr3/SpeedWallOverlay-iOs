@@ -7,6 +7,9 @@ struct CalibrationView: View {
     @State private var distanceInput: String = "1.0"
     @State private var showDistanceInput = false
     @State private var selectedUnit: DistanceUnit = .meters
+    @State private var draggingPointIndex: Int? = nil
+    @State private var pointDragOffset: CGSize = .zero
+    @State private var showCompleteBanner = false
     
     enum DistanceUnit: String, CaseIterable {
         case meters = "m"
@@ -33,29 +36,53 @@ struct CalibrationView: View {
             // Tap gesture layer
             Color.clear
                 .contentShape(Rectangle())
-                .onTapGesture { location in
-                    handleTap(at: location)
-                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onEnded { value in
+                            handleTap(at: value.location)
+                        }
+                )
             
             // Calibration points visualization
             ForEach(Array(appState.calibrationPoints.enumerated()), id: \.offset) { index, point in
                 CalibrationPointMarker(index: index + 1)
-                    .position(point)
+                    .position(displayPosition(for: index, basePoint: point))
+                    .gesture(
+                        appState.calibrationState == .complete ?
+                        DragGesture()
+                            .onChanged { value in
+                                draggingPointIndex = index
+                                pointDragOffset = value.translation
+                            }
+                            .onEnded { value in
+                                let newPos = CGPoint(
+                                    x: point.x + value.translation.width,
+                                    y: point.y + value.translation.height
+                                )
+                                appState.updatePointPosition(index: index, newPosition: newPos)
+                                draggingPointIndex = nil
+                                pointDragOffset = .zero
+                            }
+                        : nil
+                    )
             }
-            
+
             // Line between points
             if appState.calibrationPoints.count == 2 {
                 CalibrationLine(
-                    from: appState.calibrationPoints[0],
-                    to: appState.calibrationPoints[1]
+                    from: displayPosition(for: 0, basePoint: appState.calibrationPoints[0]),
+                    to: displayPosition(for: 1, basePoint: appState.calibrationPoints[1])
                 )
             }
             
             // Instructions overlay
             VStack {
                 // Top instruction banner
-                InstructionBanner(text: instructionText)
-                    .padding(.top, 60)
+                if appState.calibrationState != .complete || showCompleteBanner {
+                    InstructionBanner(text: instructionText)
+                        .padding(.top, 60)
+                        .transition(.opacity)
+                }
                 
                 Spacer()
                 
@@ -81,7 +108,7 @@ struct CalibrationView: View {
                         // Continue button (when calibration complete)
                         if appState.isCalibrated {
                             Button(action: {
-                                appState.proceedToTemplateSelection()
+                                appState.proceedToOverlay()
                             }) {
                                 Label("Continue", systemImage: "arrow.right")
                                     .font(.headline)
@@ -107,26 +134,31 @@ struct CalibrationView: View {
                 )
             }
         }
+        .onChangeCompat(of: appState.calibrationState) { newState in
+            if newState == .complete {
+                showCompleteBanner = true
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    withAnimation {
+                        showCompleteBanner = false
+                    }
+                }
+            } else {
+                showCompleteBanner = false
+            }
+        }
     }
-    
+
     // MARK: - Subviews
     
     private var calibrationCompleteView: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-                Text("Calibrated!")
-                    .font(.headline)
-            }
-            
-            Text(String(format: "%.1f px/m", appState.pixelsPerMeter))
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding()
-        .background(.ultraThinMaterial)
-        .cornerRadius(12)
+        Text(String(format: "%.1f px/m", appState.pixelsPerMeter))
+            .font(.headline.monospacedDigit())
+            .foregroundColor(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.7))
+            .cornerRadius(20)
     }
     
     // MARK: - Computed Properties
@@ -144,8 +176,20 @@ struct CalibrationView: View {
         }
     }
     
+    // MARK: - Helpers
+
+    private func displayPosition(for index: Int, basePoint: CGPoint) -> CGPoint {
+        if index == draggingPointIndex {
+            return CGPoint(
+                x: basePoint.x + pointDragOffset.width,
+                y: basePoint.y + pointDragOffset.height
+            )
+        }
+        return basePoint
+    }
+
     // MARK: - Actions
-    
+
     private func handleTap(at location: CGPoint) {
         switch appState.calibrationState {
         case .waitingForFirstPoint, .waitingForSecondPoint:
