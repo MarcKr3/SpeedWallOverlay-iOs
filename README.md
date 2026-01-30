@@ -30,6 +30,8 @@ Freely select the section You want to set.
 1. **Calibrate** — point the camera at a reference of known length, tap both ends, enter the distance
 2. **Overlay** — the layout appears over the camera feed; drag to reposition, use controls to adjust tilt, color, and layer visibility
 3. **Screenshot** — tap the camera button to save the current view
+4. **Set Route** - Put Holds in position on wall
+5. **Train the Move** - Enjoy!
 
 ## License
 
