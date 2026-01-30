@@ -4,6 +4,10 @@ An iOS app to overlay the official Speed Climbing Wall Layout onto a live camera
 Calibrate with a known distance and see the route projected in front of you.
 Freely select the section You want to set.
 
+## Demo
+
+https://github.com/user-attachments/assets/3c7d8450-863c-40fa-a34f-b85304907bf5
+
 ## Features
 
 - **Two-point calibration** — tap two points of a known distance to establish real-world scale
