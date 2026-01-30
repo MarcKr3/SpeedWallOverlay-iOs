@@ -30,6 +30,7 @@ struct ContentView: View {
                     .allowsHitTesting(appState.mode == .calibration)
 
                 OverlayView()
+                    .environmentObject(cameraManager)
                     .opacity(appState.mode == .overlay ? 1 : 0)
                     .allowsHitTesting(appState.mode == .overlay)
             }

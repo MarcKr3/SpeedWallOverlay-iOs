@@ -2,20 +2,36 @@ import AVFoundation
 import UIKit
 import SwiftUI
 import Combine
+import CoreImage
 
 /// Manages the camera session and preview
-class CameraManager: NSObject, ObservableObject {
-    
+class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+
     // MARK: - Published Properties
-    
+
     @Published var isSessionRunning = false
     @Published var error: CameraError?
-    
+
     // MARK: - Properties
-    
+
     let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "camera.session.queue")
     private var videoDeviceInput: AVCaptureDeviceInput?
+
+    // MARK: - Video Frame Capture
+
+    private let videoDataOutput = AVCaptureVideoDataOutput()
+    private let videoDataQueue = DispatchQueue(label: "camera.videodata.queue")
+    private let ciContext = CIContext()
+    private let frameLock = NSLock()
+    private var _latestFrame: CGImage?
+
+    /// The most recent camera frame as a CGImage (thread-safe)
+    var latestFrame: CGImage? {
+        frameLock.lock()
+        defer { frameLock.unlock() }
+        return _latestFrame
+    }
     
     // MARK: - Error Types
     
@@ -108,10 +124,32 @@ class CameraManager: NSObject, ObservableObject {
             session.commitConfiguration()
             return
         }
-        
+
+        // Add video data output for frame capture
+        videoDataOutput.setSampleBufferDelegate(self, queue: videoDataQueue)
+        videoDataOutput.alwaysDiscardsLateVideoFrames = true
+        if session.canAddOutput(videoDataOutput) {
+            session.addOutput(videoDataOutput)
+            // Rotate frames to match device orientation
+            if let connection = videoDataOutput.connection(with: .video) {
+                connection.videoOrientation = .portrait
+            }
+        }
+
         session.commitConfiguration()
     }
-    
+
+    // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
+        frameLock.lock()
+        _latestFrame = cgImage
+        frameLock.unlock()
+    }
+
     // MARK: - Session Control
     
     func start() {
@@ -137,6 +175,7 @@ class CameraManager: NSObject, ObservableObject {
             }
         }
     }
+
 }
 
 // MARK: - SwiftUI Camera Preview

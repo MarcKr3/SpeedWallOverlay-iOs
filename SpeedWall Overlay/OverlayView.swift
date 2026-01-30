@@ -4,6 +4,7 @@ import Photos
 struct OverlayView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var motionManager: MotionManager
+    @EnvironmentObject var cameraManager: CameraManager
 
     // Real-world wall dimensions (meters)
     private let wallWidthMeters: CGFloat = 3.0
@@ -298,7 +299,37 @@ struct OverlayView: View {
                let window = windowScene.windows.first {
                 let renderer = UIGraphicsImageRenderer(size: window.bounds.size)
                 let image = renderer.image { ctx in
+                    // 1. Draw camera frame as background (aspect-fill, matching preview layer)
+                    if let frame = cameraManager.latestFrame {
+                        let frameW = CGFloat(frame.width)
+                        let frameH = CGFloat(frame.height)
+                        let boundsW = window.bounds.width
+                        let boundsH = window.bounds.height
+                        let scale = max(boundsW / frameW, boundsH / frameH)
+                        let drawW = frameW * scale
+                        let drawH = frameH * scale
+                        let drawRect = CGRect(
+                            x: (boundsW - drawW) / 2,
+                            y: (boundsH - drawH) / 2,
+                            width: drawW,
+                            height: drawH
+                        )
+                        UIImage(cgImage: frame).draw(in: drawRect)
+                    }
+
+                    // 2. Hide camera preview (renders as black)
+                    let previewView = Self.findVideoPreviewView(in: window)
+                    previewView?.isHidden = true
+
+                    // 3. Clear all opaque backgrounds so overlay renders transparently
+                    let saved = Self.clearAllBackgrounds(in: window)
+
+                    // 4. Render UI — only overlay graphics draw (transparent backgrounds)
                     window.layer.render(in: ctx.cgContext)
+
+                    // 5. Restore everything
+                    Self.restoreBackgrounds(saved)
+                    previewView?.isHidden = false
                 }
                 guard let imageData = image.pngData() else { return }
                 PHPhotoLibrary.shared().performChanges({
@@ -319,6 +350,39 @@ struct OverlayView: View {
                 }
                 showControls = true
             }
+        }
+    }
+
+    // MARK: - Screenshot Helpers
+
+    private static func findVideoPreviewView(in view: UIView) -> VideoPreviewView? {
+        if let preview = view as? VideoPreviewView { return preview }
+        for subview in view.subviews {
+            if let found = findVideoPreviewView(in: subview) { return found }
+        }
+        return nil
+    }
+
+    private static func clearAllBackgrounds(in window: UIWindow) -> [(UIView, UIColor?, Bool)] {
+        var saved: [(UIView, UIColor?, Bool)] = []
+        func walk(_ view: UIView) {
+            let bg = view.backgroundColor
+            let opaque = view.isOpaque
+            if bg != nil || opaque {
+                saved.append((view, bg, opaque))
+                view.backgroundColor = .clear
+                view.isOpaque = false
+            }
+            for sub in view.subviews { walk(sub) }
+        }
+        walk(window)
+        return saved
+    }
+
+    private static func restoreBackgrounds(_ saved: [(UIView, UIColor?, Bool)]) {
+        for (view, bg, opaque) in saved {
+            view.backgroundColor = bg
+            view.isOpaque = opaque
         }
     }
 
@@ -366,4 +430,5 @@ struct OverlayView: View {
             return state
         }())
         .environmentObject(MotionManager())
+        .environmentObject(CameraManager())
 }
