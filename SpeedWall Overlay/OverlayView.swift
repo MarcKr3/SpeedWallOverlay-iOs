@@ -3,10 +3,11 @@ import Photos
 
 struct OverlayView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var motionManager: MotionManager
 
-    // Image dimensions (800x4000, 1:5 aspect ratio)
-    private let imageWidth: CGFloat = 800
-    private let imageHeight: CGFloat = 4000
+    // Real-world wall dimensions (meters)
+    private let wallWidthMeters: CGFloat = 3.0
+    private let wallHeightMeters: CGFloat = 15.0
 
     // Pan offset (accumulated + in-flight drag)
     @State private var offset: CGSize = .zero
@@ -28,13 +29,15 @@ struct OverlayView: View {
         GeometryReader { geometry in
             let screenWidth = geometry.size.width
             let screenHeight = geometry.size.height
-            let renderedHeight = screenWidth * (imageHeight / imageWidth)
+            let renderedWidth = wallWidthMeters * appState.pixelsPerMeter
+            let renderedHeight = wallHeightMeters * appState.pixelsPerMeter
 
-            overlayLayers(screenWidth: screenWidth, renderedHeight: renderedHeight)
+            overlayLayers(renderedWidth: renderedWidth, renderedHeight: renderedHeight)
                 .offset(
                     x: offset.width + dragOffset.width,
                     y: offset.height + dragOffset.height
                 )
+                .rotationEffect(appState.autoLevel ? motionManager.rollCorrection : .zero)
                 .rotation3DEffect(
                     .degrees(appState.verticalTilt),
                     axis: (x: 1, y: 0, z: 0),
@@ -45,7 +48,8 @@ struct OverlayView: View {
                     axis: (x: 0, y: 1, z: 0),
                     perspective: 0.5
                 )
-                .gesture(panGesture(screenWidth: screenWidth, screenHeight: screenHeight))
+                .gesture(panGesture(renderedWidth: renderedWidth, renderedHeight: renderedHeight,
+                                    screenWidth: screenWidth, screenHeight: screenHeight))
                 .frame(width: screenWidth, height: screenHeight)
                 .overlay {
                     if showControls {
@@ -61,17 +65,28 @@ struct OverlayView: View {
                     withAnimation { showControls.toggle() }
                 }
                 .onAppear {
-                    // Default the system color picker to the Spectrum tab
                     UserDefaults.standard.set(1, forKey: "UICPSelectedCustomSegment")
-
-                    guard !hasSetInitialPosition else { return }
-                    hasSetInitialPosition = true
-                    let renderedHeight = screenWidth * (imageHeight / imageWidth)
-                    offset.height = screenHeight / 3 - renderedHeight / 2
-                    clampOffset(screenWidth: screenWidth, screenHeight: screenHeight)
+                }
+                .onChangeCompat(of: appState.mode) { newMode in
+                    if newMode == .overlay {
+                        if appState.autoLevel { motionManager.start() }
+                        hasSetInitialPosition = true
+                        offset.height = screenHeight / 3 - renderedHeight / 2
+                        clampOffset(renderedWidth: renderedWidth, renderedHeight: renderedHeight,
+                                    screenWidth: screenWidth, screenHeight: screenHeight)
+                    } else {
+                        motionManager.stop()
+                        hasSetInitialPosition = false
+                    }
+                }
+                .onChangeCompat(of: appState.autoLevel) { enabled in
+                    if appState.mode == .overlay {
+                        enabled ? motionManager.start() : motionManager.stop()
+                    }
                 }
                 .onChange(of: geometry.size) { _ in
-                    clampOffset(screenWidth: geometry.size.width, screenHeight: geometry.size.height)
+                    clampOffset(renderedWidth: renderedWidth, renderedHeight: renderedHeight,
+                                screenWidth: geometry.size.width, screenHeight: geometry.size.height)
                 }
                 .alert("Screenshot Failed", isPresented: $showSaveError) {
                     Button("Settings") {
@@ -87,7 +102,7 @@ struct OverlayView: View {
     // MARK: - Overlay Layers
 
     @ViewBuilder
-    private func overlayLayers(screenWidth: CGFloat, renderedHeight: CGFloat) -> some View {
+    private func overlayLayers(renderedWidth: CGFloat, renderedHeight: CGFloat) -> some View {
         ZStack {
             // Holds layer (always visible)
             if let img = UIImage(named: "overlay") {
@@ -95,25 +110,29 @@ struct OverlayView: View {
                     .renderingMode(.template)
                     .resizable()
                     .foregroundColor(appState.overlayColor)
-                    .frame(width: screenWidth, height: renderedHeight)
+                    .frame(width: renderedWidth, height: renderedHeight)
             }
 
-            // Grid layer (toggleable)
-            if appState.showGrid, let img = UIImage(named: "grid") {
+            // Grid layer — always loaded, opacity toggled
+            if let img = UIImage(named: "grid") {
                 Image(uiImage: img)
                     .renderingMode(.template)
                     .resizable()
                     .foregroundColor(appState.overlayColor)
-                    .frame(width: screenWidth, height: renderedHeight)
+                    .frame(width: renderedWidth, height: renderedHeight)
+                    .opacity(appState.showGrid ? 1 : 0)
+                    .animation(.easeOut(duration: 0.15), value: appState.showGrid)
             }
 
-            // Labels layer (toggleable)
-            if appState.showLabels, let img = UIImage(named: "labels") {
+            // Labels layer — always loaded, opacity toggled
+            if let img = UIImage(named: "labels") {
                 Image(uiImage: img)
                     .renderingMode(.template)
                     .resizable()
                     .foregroundColor(appState.overlayColor)
-                    .frame(width: screenWidth, height: renderedHeight)
+                    .frame(width: renderedWidth, height: renderedHeight)
+                    .opacity(appState.showLabels ? 1 : 0)
+                    .animation(.easeOut(duration: 0.15), value: appState.showLabels)
             }
         }
     }
@@ -163,6 +182,16 @@ struct OverlayView: View {
                             .clipShape(Circle())
                     }
                     .accessibilityLabel(appState.showLabels ? "Hide labels" : "Show labels")
+
+                    Button(action: { appState.autoLevel.toggle() }) {
+                        Image(systemName: "level")
+                            .font(.title2)
+                            .padding(8)
+                            .background(appState.autoLevel ? Color.yellow : Color.clear)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                    }
+                    .accessibilityLabel(appState.autoLevel ? "Disable auto-level" : "Enable auto-level")
                 }
             }
             .padding(.horizontal)
@@ -291,23 +320,23 @@ struct OverlayView: View {
 
     // MARK: - Clamping
 
-    private func clampOffset(screenWidth: CGFloat, screenHeight: CGFloat) {
-        let renderedHeight = screenWidth * (imageHeight / imageWidth)
+    private func clampOffset(
+        renderedWidth: CGFloat, renderedHeight: CGFloat,
+        screenWidth: CGFloat, screenHeight: CGFloat
+    ) {
         let margin: CGFloat = 100
-
-        // Horizontal: overlay is screenWidth wide, centered. Keep `margin` visible.
-        let maxX = screenWidth - margin
+        let maxX = (screenWidth + renderedWidth) / 2 - margin
         offset.width = min(max(offset.width, -maxX), maxX)
-
-        // Vertical: overlay (renderedHeight) is centered in screen (screenHeight).
-        // Keep at least `margin` of overlay visible vertically.
         let maxY = (screenHeight + renderedHeight) / 2 - margin
         offset.height = min(max(offset.height, -maxY), maxY)
     }
 
     // MARK: - Gestures
 
-    private func panGesture(screenWidth: CGFloat, screenHeight: CGFloat) -> some Gesture {
+    private func panGesture(
+        renderedWidth: CGFloat, renderedHeight: CGFloat,
+        screenWidth: CGFloat, screenHeight: CGFloat
+    ) -> some Gesture {
         DragGesture()
             .onChanged { value in
                 dragOffset = value.translation
@@ -316,7 +345,8 @@ struct OverlayView: View {
                 offset.width += value.translation.width
                 offset.height += value.translation.height
                 dragOffset = .zero
-                clampOffset(screenWidth: screenWidth, screenHeight: screenHeight)
+                clampOffset(renderedWidth: renderedWidth, renderedHeight: renderedHeight,
+                            screenWidth: screenWidth, screenHeight: screenHeight)
             }
     }
 
@@ -326,6 +356,9 @@ struct OverlayView: View {
     OverlayView()
         .environmentObject({
             let state = AppState()
+            state.recordCalibrationTap(at: CGPoint(x: 100, y: 100))
+            state.recordCalibrationTap(at: CGPoint(x: 300, y: 100))
+            state.setKnownDistance(1.0) // 200 px/m
             return state
         }())
 }

@@ -2001,7 +2001,14 @@
         }
       }
     },
+    "Tap first point of known distance" : {
+
+    },
+    "Tap second point" : {
+
+    },
     "Tap the first point of a known distance" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -2060,6 +2067,7 @@
       }
     },
     "Tap the second point" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {

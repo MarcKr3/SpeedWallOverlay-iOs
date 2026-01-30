@@ -4,33 +4,13 @@ struct CalibrationView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var cameraManager: CameraManager
     
-    @State private var distanceInput: String = "1.0"
     @State private var showDistanceInput = false
-    @State private var selectedUnit: DistanceUnit = .meters
     @State private var draggingPointIndex: Int? = nil
     @State private var pointDragOffset: CGSize = .zero
+    @State private var draggingLine = false
+    @State private var lineDragOffset: CGSize = .zero
     @State private var showCompleteBanner = false
     @State private var showAbout = false
-    
-    enum DistanceUnit: String, CaseIterable {
-        case meters = "m"
-        case centimeters = "cm"
-        case inches = "in"
-        case feet = "ft"
-        
-        func toMeters(_ value: Double) -> Double {
-            switch self {
-            case .meters:
-                return value
-            case .centimeters:
-                return value / 100
-            case .inches:
-                return value * 0.0254
-            case .feet:
-                return value * 0.3048
-            }
-        }
-    }
     
     var body: some View {
         ZStack {
@@ -51,6 +31,7 @@ struct CalibrationView: View {
                     from: displayPosition(for: 0, basePoint: appState.calibrationPoints[0]),
                     to: displayPosition(for: 1, basePoint: appState.calibrationPoints[1])
                 )
+                .transition(.opacity)
                 .allowsHitTesting(false)
             }
 
@@ -62,7 +43,7 @@ struct CalibrationView: View {
                 // Keep text readable: flip if label would be upside-down
                 let correctedAngle = (angle > .pi / 2 || angle < -.pi / 2)
                     ? angle + .pi : angle
-                Text("\(distanceInput) \(selectedUnit.rawValue)")
+                Text("\(appState.distanceInputText) \(appState.selectedDistanceUnit.rawValue)")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white)
                     .padding(.horizontal, 11)
@@ -71,9 +52,27 @@ struct CalibrationView: View {
                     .cornerRadius(14)
                     .rotationEffect(Angle(radians: correctedAngle))
                     .position(x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2)
+                    .transition(.opacity)
                     .onTapGesture {
-                        showDistanceInput = true
+                        withAnimation { showDistanceInput = true }
                     }
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 3)
+                            .onChanged { value in
+                                draggingLine = true
+                                lineDragOffset = value.translation
+                            }
+                            .onEnded { value in
+                                let offset = value.translation
+                                for i in 0..<appState.calibrationPoints.count {
+                                    let old = appState.calibrationPoints[i]
+                                    let newPos = CGPoint(x: old.x + offset.width, y: old.y + offset.height)
+                                    appState.updatePointPosition(index: i, newPosition: newPos)
+                                }
+                                draggingLine = false
+                                lineDragOffset = .zero
+                            }
+                    )
             }
 
             // Calibration points visualization
@@ -81,6 +80,7 @@ struct CalibrationView: View {
                 CalibrationPointMarker(index: index + 1)
                     .contentShape(Circle().size(width: 34, height: 34).offset(x: -5, y: -5))
                     .position(displayPosition(for: index, basePoint: point))
+                    .transition(.opacity)
                     .gesture(
                         appState.calibrationState == .complete ?
                         DragGesture()
@@ -113,40 +113,16 @@ struct CalibrationView: View {
                 Spacer()
                 
                 // Bottom controls
-                HStack(alignment: .bottom) {
-                    // Info button (bottom-left) — fades out after first marker
-                    if appState.calibrationState == .waitingForFirstPoint {
-                        Button(action: { showAbout = true }) {
-                            Text("i")
-                                .font(.system(size: 13, weight: .semibold, design: .serif))
-                                .italic()
-                                .foregroundColor(.white)
-                                .frame(width: 22, height: 22)
-                                .background(.ultraThinMaterial)
-                                .clipShape(Circle())
-                        }
-                        .frame(minWidth: 100, minHeight: 100)
-                        .contentShape(Circle())
-                        .accessibilityLabel("About this app")
-                        .transition(.opacity)
+                VStack(spacing: 12) {
+                    if appState.calibrationState == .complete {
+                        calibrationCompleteView
+                            .transition(.opacity)
                     }
 
-                    Spacer()
-                }
-                .padding(4)
-                .animation(.easeOut(duration: 0.3), value: appState.calibrationState)
-                .overlay {
-                    // Centered calibration controls
-                    VStack(spacing: 12) {
-                        if appState.calibrationState == .complete {
-                            calibrationCompleteView
-                        }
-
-                        HStack(spacing: 20) {
-                            // Reset button
-                            Button(action: {
-                                appState.resetCalibration()
-                            }) {
+                    HStack(spacing: 20) {
+                        // Reset — hidden until first marker placed
+                        if appState.calibrationState != .waitingForFirstPoint {
+                            Button(action: { appState.resetCalibration() }) {
                                 Label("Reset", systemImage: "arrow.counterclockwise")
                                     .font(.headline)
                                     .frame(minWidth: 130)
@@ -154,24 +130,44 @@ struct CalibrationView: View {
                                     .background(.ultraThinMaterial)
                                     .cornerRadius(25)
                             }
+                            .transition(.opacity)
+                        }
 
-                            // Continue button (when calibration complete)
-                            if appState.isCalibrated {
-                                Button(action: {
-                                    appState.proceedToOverlay()
-                                }) {
-                                    Label("Continue", systemImage: "arrow.right")
-                                        .font(.headline)
-                                        .frame(minWidth: 130)
-                                        .padding(.vertical, 12)
-                                        .background(Color.green)
-                                        .foregroundColor(.white)
-                                        .cornerRadius(25)
-                                }
+                        // Continue — when calibration complete
+                        if appState.isCalibrated {
+                            Button(action: { appState.proceedToOverlay() }) {
+                                Label("Continue", systemImage: "arrow.right")
+                                    .font(.headline)
+                                    .frame(minWidth: 130)
+                                    .padding(.vertical, 12)
+                                    .background(Color.green)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(25)
                             }
+                            .transition(.opacity)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .overlay(alignment: .bottomLeading) {
+                        // Info button — only in initial state, doesn't affect layout
+                        if appState.calibrationState == .waitingForFirstPoint && !showAbout {
+                            Button(action: { withAnimation { showAbout = true } }) {
+                                Text("i")
+                                    .font(.system(size: 13, weight: .semibold, design: .serif))
+                                    .italic()
+                                    .foregroundColor(.white)
+                                    .frame(width: 22, height: 22)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Circle())
+                            }
+                            .frame(minWidth: 100, minHeight: 100)
+                            .contentShape(Circle())
+                            .accessibilityLabel("About this app")
+                            .transition(.opacity)
                         }
                     }
                 }
+                .animation(.easeOut(duration: 0.3), value: appState.calibrationState)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
             }
@@ -191,7 +187,7 @@ struct CalibrationView: View {
                         Text("Version 1.0")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Button("Close") { showAbout = false }
+                        Button("Close") { withAnimation { showAbout = false } }
                             .buttonStyle(.borderedProminent)
                     }
                     .padding(30)
@@ -200,16 +196,24 @@ struct CalibrationView: View {
                     .padding()
                 }
                 .background(Color.black.opacity(0.5))
+                .transition(.opacity)
             }
 
             // Distance input sheet
             if showDistanceInput {
                 DistanceInputSheet(
-                    distanceInput: $distanceInput,
-                    selectedUnit: $selectedUnit,
+                    distanceInput: $appState.distanceInputText,
+                    selectedUnit: $appState.selectedDistanceUnit,
                     onConfirm: confirmDistance,
-                    onCancel: { showDistanceInput = false }
+                    onCancel: {
+                        if case .waitingForDistance = appState.calibrationState {
+                            appState.setKnownDistance(1.0)
+                        }
+                        withAnimation { showDistanceInput = false }
+                    }
                 )
+                .transition(.opacity)
+                .zIndex(1)
             }
         }
         .onChangeCompat(of: appState.calibrationState) { newState in
@@ -238,18 +242,18 @@ struct CalibrationView: View {
             .background(Color.black.opacity(0.7))
             .cornerRadius(14)
             .onTapGesture {
-                showDistanceInput = true
+                withAnimation { showDistanceInput = true }
             }
     }
-    
+
     // MARK: - Computed Properties
     
     private var instructionText: LocalizedStringKey {
         switch appState.calibrationState {
         case .waitingForFirstPoint:
-            return "Tap the first point of a known distance"
+            return "Tap first point of known distance"
         case .waitingForSecondPoint:
-            return "Tap the second point"
+            return "Tap second point"
         case .waitingForDistance:
             return "Enter the distance between points"
         case .complete:
@@ -260,13 +264,16 @@ struct CalibrationView: View {
     // MARK: - Helpers
 
     private func displayPosition(for index: Int, basePoint: CGPoint) -> CGPoint {
+        var point = basePoint
         if index == draggingPointIndex {
-            return CGPoint(
-                x: basePoint.x + pointDragOffset.width,
-                y: basePoint.y + pointDragOffset.height
-            )
+            point.x += pointDragOffset.width
+            point.y += pointDragOffset.height
         }
-        return basePoint
+        if draggingLine {
+            point.x += lineDragOffset.width
+            point.y += lineDragOffset.height
+        }
+        return point
     }
 
     // MARK: - Actions
@@ -274,11 +281,13 @@ struct CalibrationView: View {
     private func handleTap(at location: CGPoint) {
         switch appState.calibrationState {
         case .waitingForFirstPoint, .waitingForSecondPoint:
-            appState.recordCalibrationTap(at: location)
-            
+            withAnimation(.easeOut(duration: 0.2)) {
+                appState.recordCalibrationTap(at: location)
+            }
+
             // Check if we need to show distance input
             if case .waitingForDistance = appState.calibrationState {
-                showDistanceInput = true
+                withAnimation { showDistanceInput = true }
             }
             
         case .waitingForDistance:
@@ -292,10 +301,10 @@ struct CalibrationView: View {
     }
     
     private func confirmDistance() {
-        guard let value = Double(distanceInput), value > 0 else { return }
-        let meters = selectedUnit.toMeters(value)
+        guard let value = Double(appState.distanceInputText), value > 0 else { return }
+        let meters = appState.selectedDistanceUnit.toMeters(value)
         appState.setKnownDistance(meters)
-        showDistanceInput = false
+        withAnimation { showDistanceInput = false }
     }
 }
 
@@ -381,51 +390,55 @@ struct InstructionBanner: View {
 
 struct DistanceInputSheet: View {
     @Binding var distanceInput: String
-    @Binding var selectedUnit: CalibrationView.DistanceUnit
+    @Binding var selectedUnit: DistanceUnit
     let onConfirm: () -> Void
     let onCancel: () -> Void
     
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            
-            VStack(spacing: 20) {
-                Text("Enter Known Distance")
-                    .font(.headline)
-                
-                HStack {
-                    TextField("Distance", text: $distanceInput)
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.decimalPad)
-                        .frame(width: 100)
-                    
-                    Picker("Unit", selection: $selectedUnit) {
-                        ForEach(CalibrationView.DistanceUnit.allCases, id: \.self) { unit in
-                            Text(unit.rawValue).tag(unit)
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Spacer()
+
+                VStack(spacing: 20) {
+                    Text("Enter Known Distance")
+                        .font(.headline)
+
+                    HStack {
+                        TextField("Distance", text: $distanceInput)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.decimalPad)
+                            .frame(width: 100)
+
+                        Picker("Unit", selection: $selectedUnit) {
+                            ForEach(DistanceUnit.allCases, id: \.self) { unit in
+                                Text(unit.rawValue).tag(unit)
+                            }
                         }
+                        .pickerStyle(.segmented)
+                        .frame(width: 200)
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 200)
+
+                    HStack(spacing: 20) {
+                        Button("Cancel") {
+                            onCancel()
+                        }
+                        .foregroundColor(.red)
+
+                        Button("Confirm") {
+                            onConfirm()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
-                
-                HStack(spacing: 20) {
-                    Button("Cancel") {
-                        onCancel()
-                    }
-                    .foregroundColor(.red)
-                    
-                    Button("Confirm") {
-                        onConfirm()
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
+                .padding(30)
+                .background(.regularMaterial)
+                .cornerRadius(20)
+                .padding()
             }
-            .padding(30)
-            .background(.regularMaterial)
-            .cornerRadius(20)
-            .padding()
         }
-        .background(Color.black.opacity(0.5))
     }
 }
 

@@ -24,22 +24,23 @@ struct ContentView: View {
                 CameraPreview(session: cameraManager.session)
                     .ignoresSafeArea()
 
-                // Mode-specific overlay
-                switch appState.mode {
-                case .calibration:
-                    CalibrationView()
-                        .environmentObject(cameraManager)
+                CalibrationView()
+                    .environmentObject(cameraManager)
+                    .opacity(appState.mode == .calibration ? 1 : 0)
+                    .allowsHitTesting(appState.mode == .calibration)
 
-                case .overlay:
-                    OverlayView()
-                }
+                OverlayView()
+                    .opacity(appState.mode == .overlay ? 1 : 0)
+                    .allowsHitTesting(appState.mode == .overlay)
             }
+            .animation(.easeOut(duration: 0.3), value: appState.mode)
             .onAppear {
                 appState.screenSize = geometry.size
             }
             .onChangeCompat(of: geometry.size) { newSize in
+                let oldWidth = appState.screenSize.width
                 appState.screenSize = newSize
-                if appState.mode == .calibration {
+                if appState.mode == .calibration && abs(newSize.width - oldWidth) > 1 {
                     appState.resetCalibration()
                 }
             }

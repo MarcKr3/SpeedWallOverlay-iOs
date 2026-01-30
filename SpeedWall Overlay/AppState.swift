@@ -13,6 +13,27 @@ enum AppMode: Equatable {
     case overlay
 }
 
+/// Distance unit for calibration input
+enum DistanceUnit: String, CaseIterable {
+    case meters = "m"
+    case centimeters = "cm"
+    case inches = "in"
+    case feet = "ft"
+
+    func toMeters(_ value: Double) -> Double {
+        switch self {
+        case .meters:
+            return value
+        case .centimeters:
+            return value / 100
+        case .inches:
+            return value * 0.0254
+        case .feet:
+            return value * 0.3048
+        }
+    }
+}
+
 /// Calibration state tracking
 enum CalibrationState: Equatable {
     case waitingForFirstPoint
@@ -33,6 +54,12 @@ class AppState: ObservableObject {
     /// The real-world distance the user specified (in meters)
     @Published var knownDistanceMeters: Double = 1.0
 
+    /// Distance input text persisted across view lifecycle
+    @Published var distanceInputText: String = "1.0"
+
+    /// Selected distance unit persisted across view lifecycle
+    @Published var selectedDistanceUnit: DistanceUnit = Locale.current.usesMetricSystem ? .meters : .feet
+
     /// Calculated pixels per meter based on calibration
     @Published private(set) var pixelsPerMeter: CGFloat = 0
 
@@ -49,6 +76,9 @@ class AppState: ObservableObject {
     /// Perspective tilt adjustments (degrees)
     @Published var horizontalTilt: Double = 0
     @Published var verticalTilt: Double = 0
+
+    /// Auto-level using device motion
+    @Published var autoLevel: Bool = false
 
     // MARK: - Internal Properties
 
@@ -116,21 +146,27 @@ class AppState: ObservableObject {
 
     /// Reset calibration
     func resetCalibration() {
-        calibrationState = .waitingForFirstPoint
-        firstCalibrationPoint = nil
-        secondCalibrationPoint = nil
-        pixelsPerMeter = 0
+        withAnimation(.easeOut(duration: 0.3)) {
+            calibrationState = .waitingForFirstPoint
+            firstCalibrationPoint = nil
+            secondCalibrationPoint = nil
+            pixelsPerMeter = 0
+        }
     }
 
     /// Move to overlay mode
     func proceedToOverlay() {
         guard calibrationState == .complete else { return }
-        mode = .overlay
+        withAnimation(.easeOut(duration: 0.3)) {
+            mode = .overlay
+        }
     }
 
     /// Go back to calibration
     func backToCalibration() {
-        mode = .calibration
+        withAnimation(.easeOut(duration: 0.3)) {
+            mode = .calibration
+        }
     }
 
     // MARK: - Computed Properties
