@@ -953,6 +953,9 @@
         }
       }
     },
+    "Disable auto-level" : {
+
+    },
     "Distance" : {
       "localizations" : {
         "de" : {
@@ -1068,6 +1071,9 @@
           }
         }
       }
+    },
+    "Enable auto-level" : {
+
     },
     "Enter Known Distance" : {
       "localizations" : {

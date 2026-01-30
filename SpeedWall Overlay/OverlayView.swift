@@ -183,15 +183,6 @@ struct OverlayView: View {
                     }
                     .accessibilityLabel(appState.showLabels ? "Hide labels" : "Show labels")
 
-                    Button(action: { appState.autoLevel.toggle() }) {
-                        Image(systemName: "level")
-                            .font(.title2)
-                            .padding(8)
-                            .background(appState.autoLevel ? Color.yellow : Color.clear)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
-                    }
-                    .accessibilityLabel(appState.autoLevel ? "Disable auto-level" : "Enable auto-level")
                 }
             }
             .padding(.horizontal)
@@ -213,9 +204,22 @@ struct OverlayView: View {
                         }
                     }
                     .accessibilityLabel("Take screenshot")
+
                     Spacer()
+
+                    Button(action: { appState.autoLevel.toggle() }) {
+                        ZStack {
+                            Circle()
+                                .stroke(appState.autoLevel ? Color.yellow : Color.white, lineWidth: 3)
+                                .frame(width: 35, height: 35)
+                            Image(systemName: "level")
+                                .font(.system(size: 16))
+                                .foregroundColor(appState.autoLevel ? .yellow : .white)
+                        }
+                    }
+                    .accessibilityLabel(appState.autoLevel ? "Disable auto-level" : "Enable auto-level")
                 }
-                .padding(.leading, 10)
+                .padding(.horizontal, 10)
 
                 // Horizontal tilt slider
                 HStack(spacing: 8) {
@@ -361,4 +365,5 @@ struct OverlayView: View {
             state.setKnownDistance(1.0) // 200 px/m
             return state
         }())
+        .environmentObject(MotionManager())
 }
