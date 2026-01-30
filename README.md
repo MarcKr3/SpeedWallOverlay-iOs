@@ -16,6 +16,14 @@ https://github.com/user-attachments/assets/3c7d8450-863c-40fa-a34f-b85304907bf5
 - **Overlay controls** — toggle grid and label layers, pick overlay color, drag to reposition
 - **Screenshot capture** — save the camera + overlay composite to your photo library
 
+## Usage
+
+1. **Calibrate** — point the camera at a reference of known length, tap both ends, enter the distance
+2. **Overlay** — the layout appears over the camera feed; drag to reposition, use controls to adjust tilt, color, and layer visibility
+3. **Screenshot** — tap the camera button to save the current view
+4. **Set Route** - Put Holds in position on wall
+5. **Train the Move** - Enjoy!
+
 ## Requirements
 
 - iOS 15.6+
@@ -28,14 +36,6 @@ https://github.com/user-attachments/assets/3c7d8450-863c-40fa-a34f-b85304907bf5
 2. Open `SpeedWall Overlay.xcodeproj` in Xcode
 3. Add your route template image to `Assets.xcassets` named `template` (a placeholder gradient is used if omitted)
 4. Build and run on a physical device (camera requires a real device)
-
-## Usage
-
-1. **Calibrate** — point the camera at a reference of known length, tap both ends, enter the distance
-2. **Overlay** — the layout appears over the camera feed; drag to reposition, use controls to adjust tilt, color, and layer visibility
-3. **Screenshot** — tap the camera button to save the current view
-4. **Set Route** - Put Holds in position on wall
-5. **Train the Move** - Enjoy!
 
 ## License
 
