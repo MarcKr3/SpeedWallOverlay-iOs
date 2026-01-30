@@ -52,6 +52,7 @@ struct OverlayView: View {
                 .gesture(panGesture(renderedWidth: renderedWidth, renderedHeight: renderedHeight,
                                     screenWidth: screenWidth, screenHeight: screenHeight))
                 .frame(width: screenWidth, height: screenHeight)
+                .contentShape(Rectangle())
                 .overlay {
                     if showControls {
                         controlsOverlay()
@@ -62,9 +63,12 @@ struct OverlayView: View {
                             .allowsHitTesting(false)
                     }
                 }
-                .onTapGesture(count: 2) {
-                    withAnimation { showControls.toggle() }
-                }
+                .simultaneousGesture(
+                    TapGesture(count: 2)
+                        .onEnded {
+                            withAnimation { showControls.toggle() }
+                        }
+                )
                 .onAppear {
                     UserDefaults.standard.set(1, forKey: "UICPSelectedCustomSegment")
                 }
@@ -121,7 +125,10 @@ struct OverlayView: View {
                     .resizable()
                     .foregroundColor(appState.overlayColor)
                     .frame(width: renderedWidth, height: renderedHeight)
-                    .opacity(appState.showGrid ? 1 : 0)
+                    .drawingGroup()
+                    // NB: 0.01 (not 0) keeps the .drawingGroup() Metal texture alive;
+                    // opacity(0) lets SwiftUI skip the render pass, causing first-toggle stutter.
+                    .opacity(appState.showGrid ? 1 : 0.01)
                     .animation(.easeOut(duration: 0.15), value: appState.showGrid)
             }
 
@@ -132,7 +139,10 @@ struct OverlayView: View {
                     .resizable()
                     .foregroundColor(appState.overlayColor)
                     .frame(width: renderedWidth, height: renderedHeight)
-                    .opacity(appState.showLabels ? 1 : 0)
+                    .drawingGroup()
+                    // NB: 0.01 (not 0) keeps the .drawingGroup() Metal texture alive;
+                    // opacity(0) lets SwiftUI skip the render pass, causing first-toggle stutter.
+                    .opacity(appState.showLabels ? 1 : 0.01)
                     .animation(.easeOut(duration: 0.15), value: appState.showLabels)
             }
         }
@@ -282,7 +292,7 @@ struct OverlayView: View {
             .padding()
             .background(
                 LinearGradient(
-                    colors: [.clear, .black.opacity(0.7)],
+                    colors: [.black.opacity(0), .black.opacity(0.7)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -348,7 +358,11 @@ struct OverlayView: View {
                 withAnimation(.easeOut(duration: 0.3)) {
                     showFlash = false
                 }
-                showControls = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showControls = true
+                }
             }
         }
     }
