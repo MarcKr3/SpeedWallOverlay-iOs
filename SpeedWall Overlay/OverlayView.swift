@@ -34,10 +34,6 @@ struct OverlayView: View {
             let renderedHeight = wallHeightMeters * appState.pixelsPerMeter
 
             overlayLayers(renderedWidth: renderedWidth, renderedHeight: renderedHeight)
-                .offset(
-                    x: offset.width + dragOffset.width,
-                    y: offset.height + dragOffset.height
-                )
                 .rotationEffect(appState.autoLevel ? motionManager.rollCorrection : .zero)
                 .rotation3DEffect(
                     .degrees(appState.verticalTilt),
@@ -48,6 +44,10 @@ struct OverlayView: View {
                     .degrees(appState.horizontalTilt),
                     axis: (x: 0, y: 1, z: 0),
                     perspective: 0.5
+                )
+                .offset(
+                    x: offset.width + dragOffset.width,
+                    y: offset.height + dragOffset.height
                 )
                 .gesture(panGesture(renderedWidth: renderedWidth, renderedHeight: renderedHeight,
                                     screenWidth: screenWidth, screenHeight: screenHeight))
@@ -167,7 +167,7 @@ struct OverlayView: View {
                 Spacer()
 
                 // Layer toggles
-                HStack(spacing: 1) {
+                HStack(spacing: 10) {
                     ColorPicker("", selection: $appState.overlayColor, supportsOpacity: false)
                         .labelsHidden()
                         .scaleEffect(0.9)
@@ -242,17 +242,16 @@ struct OverlayView: View {
 
                     Slider(
                         value: $appState.horizontalTilt,
-                        in: -45...45,
-                        step: 0.5
+                        in: -45...45
                     )
-                    .tint(.yellow)
+                    .tint(.white)
                     .accessibilityLabel("Horizontal tilt")
 
                     Button(action: { appState.horizontalTilt = 0 }) {
                         Image(systemName: "arrow.counterclockwise")
-                            .font(.caption)
+                            .font(.body)
                             .foregroundColor(.white)
-                            .frame(width: 20)
+                            .frame(width: 44, height: 44)
                     }
                     .accessibilityLabel("Reset horizontal tilt")
                 }
@@ -268,17 +267,16 @@ struct OverlayView: View {
 
                     Slider(
                         value: $appState.verticalTilt,
-                        in: -45...45,
-                        step: 0.5
+                        in: -45...45
                     )
-                    .tint(.yellow)
+                    .tint(.white)
                     .accessibilityLabel("Vertical tilt")
 
                     Button(action: { appState.verticalTilt = 0 }) {
                         Image(systemName: "arrow.counterclockwise")
-                            .font(.caption)
+                            .font(.body)
                             .foregroundColor(.white)
-                            .frame(width: 20)
+                            .frame(width: 44, height: 44)
                     }
                     .accessibilityLabel("Reset vertical tilt")
                 }

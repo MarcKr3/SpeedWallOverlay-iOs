@@ -1,12 +1,14 @@
 import SwiftUI
 
+private let CalibrationAccent = Color(red: 1.0, green: 0.655, blue: 0.149) // Material Orange 400 (#FFA726)
+
 struct CalibrationView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var cameraManager: CameraManager
     
     @State private var showDistanceInput = false
     @State private var draggingPointIndex: Int? = nil
-    @State private var pointDragOffset: CGSize = .zero
+    @State private var dragStartBasePosition: CGPoint? = nil
     @State private var draggingLine = false
     @State private var lineDragOffset: CGSize = .zero
     @State private var showCompleteBanner = false
@@ -28,8 +30,8 @@ struct CalibrationView: View {
             // Line between points
             if appState.calibrationPoints.count == 2 {
                 CalibrationLine(
-                    from: displayPosition(for: 0, basePoint: appState.calibrationPoints[0]),
-                    to: displayPosition(for: 1, basePoint: appState.calibrationPoints[1])
+                    from: displayPosition(for: 0),
+                    to: displayPosition(for: 1)
                 )
                 .transition(.opacity)
                 .allowsHitTesting(false)
@@ -37,8 +39,8 @@ struct CalibrationView: View {
 
             // Distance label at midpoint of calibration line
             if appState.calibrationState == .complete && appState.calibrationPoints.count == 2 {
-                let p1 = displayPosition(for: 0, basePoint: appState.calibrationPoints[0])
-                let p2 = displayPosition(for: 1, basePoint: appState.calibrationPoints[1])
+                let p1 = displayPosition(for: 0)
+                let p2 = displayPosition(for: 1)
                 let angle = atan2(p2.y - p1.y, p2.x - p1.x)
                 // Keep text readable: flip if label would be upside-down
                 let correctedAngle = (angle > .pi / 2 || angle < -.pi / 2)
@@ -48,7 +50,7 @@ struct CalibrationView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 6)
-                    .background(Color.yellow)
+                    .background(CalibrationAccent)
                     .cornerRadius(14)
                     .rotationEffect(Angle(radians: correctedAngle))
                     .position(x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2)
@@ -60,13 +62,28 @@ struct CalibrationView: View {
                         DragGesture(minimumDistance: 3)
                             .onChanged { value in
                                 draggingLine = true
-                                lineDragOffset = value.translation
+                                // Counter-rotate drag translation from rotated local space to screen space
+                                let cosA = cos(correctedAngle)
+                                let sinA = sin(correctedAngle)
+                                let dx = value.translation.width
+                                let dy = value.translation.height
+                                lineDragOffset = CGSize(
+                                    width: dx * cosA - dy * sinA,
+                                    height: dx * sinA + dy * cosA
+                                )
                             }
                             .onEnded { value in
-                                let offset = value.translation
+                                let cosA = cos(correctedAngle)
+                                let sinA = sin(correctedAngle)
+                                let dx = value.translation.width
+                                let dy = value.translation.height
+                                let screenOffset = CGSize(
+                                    width: dx * cosA - dy * sinA,
+                                    height: dx * sinA + dy * cosA
+                                )
                                 for i in 0..<appState.calibrationPoints.count {
                                     let old = appState.calibrationPoints[i]
-                                    let newPos = CGPoint(x: old.x + offset.width, y: old.y + offset.height)
+                                    let newPos = CGPoint(x: old.x + screenOffset.width, y: old.y + screenOffset.height)
                                     appState.updatePointPosition(index: i, newPosition: newPos)
                                 }
                                 draggingLine = false
@@ -76,26 +93,29 @@ struct CalibrationView: View {
             }
 
             // Calibration points visualization
-            ForEach(Array(appState.calibrationPoints.enumerated()), id: \.offset) { index, point in
+            ForEach(Array(appState.calibrationPoints.indices), id: \.self) { index in
                 CalibrationPointMarker(index: index + 1)
                     .contentShape(Circle().size(width: 34, height: 34).offset(x: -5, y: -5))
-                    .position(displayPosition(for: index, basePoint: point))
+                    .position(displayPosition(for: index))
                     .transition(.opacity)
                     .gesture(
                         appState.calibrationState == .complete ?
                         DragGesture()
                             .onChanged { value in
-                                draggingPointIndex = index
-                                pointDragOffset = value.translation
+                                if draggingPointIndex != index {
+                                    draggingPointIndex = index
+                                    dragStartBasePosition = appState.calibrationPoints[index]
+                                }
+                                if let base = dragStartBasePosition {
+                                    appState.updatePointPosition(index: index, newPosition: CGPoint(
+                                        x: base.x + value.translation.width,
+                                        y: base.y + value.translation.height
+                                    ))
+                                }
                             }
-                            .onEnded { value in
-                                let newPos = CGPoint(
-                                    x: point.x + value.translation.width,
-                                    y: point.y + value.translation.height
-                                )
-                                appState.updatePointPosition(index: index, newPosition: newPos)
+                            .onEnded { _ in
                                 draggingPointIndex = nil
-                                pointDragOffset = .zero
+                                dragStartBasePosition = nil
                             }
                         : nil
                     )
@@ -263,12 +283,8 @@ struct CalibrationView: View {
     
     // MARK: - Helpers
 
-    private func displayPosition(for index: Int, basePoint: CGPoint) -> CGPoint {
-        var point = basePoint
-        if index == draggingPointIndex {
-            point.x += pointDragOffset.width
-            point.y += pointDragOffset.height
-        }
+    private func displayPosition(for index: Int) -> CGPoint {
+        var point = appState.calibrationPoints[index]
         if draggingLine {
             point.x += lineDragOffset.width
             point.y += lineDragOffset.height
@@ -317,23 +333,23 @@ struct CalibrationPointMarker: View {
         ZStack {
             // Outer ring
             Circle()
-                .stroke(Color.yellow, lineWidth: 1.5)
+                .stroke(CalibrationAccent, lineWidth: 1.5)
                 .frame(width: 25, height: 25)
 
             // Inner circle
             Circle()
-                .fill(Color.yellow.opacity(0.3))
+                .fill(CalibrationAccent.opacity(0.3))
                 .frame(width: 22, height: 22)
 
             // Crosshair
             VStack {
                 Rectangle()
-                    .fill(Color.yellow)
+                    .fill(CalibrationAccent)
                     .frame(width: 1, height: 10)
             }
             HStack {
                 Rectangle()
-                    .fill(Color.yellow)
+                    .fill(CalibrationAccent)
                     .frame(width: 10, height: 1)
             }
 
@@ -342,7 +358,7 @@ struct CalibrationPointMarker: View {
                 .font(.system(size: 7, weight: .bold))
                 .foregroundColor(.black)
                 .padding(3)
-                .background(Color.yellow)
+                .background(CalibrationAccent)
                 .clipShape(Circle())
                 .offset(x: 13, y: -13)
         }
@@ -363,7 +379,7 @@ struct CalibrationLine: View {
             
             context.stroke(
                 path,
-                with: .color(.yellow),
+                with: .color(CalibrationAccent),
                 style: StrokeStyle(lineWidth: 3, dash: [10, 5])
             )
         }

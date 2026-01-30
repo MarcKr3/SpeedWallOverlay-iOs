@@ -58,7 +58,7 @@ class AppState: ObservableObject {
     @Published var distanceInputText: String = "1.0"
 
     /// Selected distance unit persisted across view lifecycle
-    @Published var selectedDistanceUnit: DistanceUnit = Locale.current.usesMetricSystem ? .meters : .feet
+    @Published var selectedDistanceUnit: DistanceUnit = .meters
 
     /// Calculated pixels per meter based on calibration
     @Published private(set) var pixelsPerMeter: CGFloat = 0
@@ -82,8 +82,8 @@ class AppState: ObservableObject {
 
     // MARK: - Internal Properties
 
-    var firstCalibrationPoint: CalibrationPoint?
-    var secondCalibrationPoint: CalibrationPoint?
+    @Published var firstCalibrationPoint: CalibrationPoint?
+    @Published var secondCalibrationPoint: CalibrationPoint?
 
     // MARK: - Calibration Methods
 
