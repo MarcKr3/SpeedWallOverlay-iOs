@@ -325,7 +325,7 @@ struct OverlayView: View {
                     let saved = Self.clearAllBackgrounds(in: window)
 
                     // 4. Render UI — only overlay graphics draw (transparent backgrounds)
-                    window.layer.render(in: ctx.cgContext)
+                    window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
 
                     // 5. Restore everything
                     Self.restoreBackgrounds(saved)
