@@ -121,8 +121,6 @@ class AppState: ObservableObject {
         pixelsPerMeter = pixelDistance / CGFloat(meters)
 
         calibrationState = .complete
-
-        print("Calibration complete: \(pixelsPerMeter) pixels/meter")
     }
 
     /// Update a calibration point position and recalculate px/m

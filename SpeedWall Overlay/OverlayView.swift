@@ -70,6 +70,8 @@ struct OverlayView: View {
                         }
                 )
                 .onAppear {
+                    // Force ColorPicker to open on the custom-color tab instead of the grid tab.
+                    // "UICPSelectedCustomSegment" is an internal UIKit key; value 1 = spectrum/slider tab.
                     UserDefaults.standard.set(1, forKey: "UICPSelectedCustomSegment")
                 }
                 .onChangeCompat(of: appState.mode) { newMode in
@@ -95,7 +97,8 @@ struct OverlayView: View {
                 }
                 .alert("Screenshot Failed", isPresented: $showSaveError) {
                     Button("Settings") {
-                        UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
+                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                        UIApplication.shared.open(url)
                     }
                     Button("Cancel", role: .cancel) { }
                 } message: {
@@ -340,13 +343,21 @@ struct OverlayView: View {
                     previewView?.isHidden = false
                 }
                 guard let imageData = image.pngData() else { return }
-                PHPhotoLibrary.shared().performChanges({
-                    let request = PHAssetCreationRequest.forAsset()
-                    request.addResource(with: .photo, data: imageData, options: nil)
-                }) { success, error in
-                    if !success {
+                PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                    guard status == .authorized || status == .limited else {
                         DispatchQueue.main.async {
                             showSaveError = true
+                        }
+                        return
+                    }
+                    PHPhotoLibrary.shared().performChanges({
+                        let request = PHAssetCreationRequest.forAsset()
+                        request.addResource(with: .photo, data: imageData, options: nil)
+                    }) { success, error in
+                        if !success {
+                            DispatchQueue.main.async {
+                                showSaveError = true
+                            }
                         }
                     }
                 }

@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/3c7d8450-863c-40fa-a34f-b85304907bf5
 
 1. Clone the repo
 2. Open `SpeedWall Overlay.xcodeproj` in Xcode
-3. Add your route template image to `Assets.xcassets` named `template` (a placeholder gradient is used if omitted)
+3. The route overlay assets (`overlay`, `grid`, `labels`) are already included in `Assets.xcassets`
 4. Build and run on a physical device (camera requires a real device)
 
 ## License

@@ -210,6 +210,7 @@ class VideoPreviewView: UIView {
         AVCaptureVideoPreviewLayer.self
     }
     
+    /// Safe force cast — `layerClass` is overridden above to return `AVCaptureVideoPreviewLayer`.
     var videoPreviewLayer: AVCaptureVideoPreviewLayer {
         layer as! AVCaptureVideoPreviewLayer
     }

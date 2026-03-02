@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct CameraOverlayAppApp: App {
+struct CameraOverlayApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var motionManager = MotionManager()
 

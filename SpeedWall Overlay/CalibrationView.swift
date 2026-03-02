@@ -62,28 +62,15 @@ struct CalibrationView: View {
                         DragGesture(minimumDistance: 3)
                             .onChanged { value in
                                 draggingLine = true
-                                // Counter-rotate drag translation from rotated local space to screen space
-                                let cosA = cos(correctedAngle)
-                                let sinA = sin(correctedAngle)
-                                let dx = value.translation.width
-                                let dy = value.translation.height
-                                lineDragOffset = CGSize(
-                                    width: dx * cosA - dy * sinA,
-                                    height: dx * sinA + dy * cosA
-                                )
+                                lineDragOffset = value.translation
                             }
                             .onEnded { value in
-                                let cosA = cos(correctedAngle)
-                                let sinA = sin(correctedAngle)
-                                let dx = value.translation.width
-                                let dy = value.translation.height
-                                let screenOffset = CGSize(
-                                    width: dx * cosA - dy * sinA,
-                                    height: dx * sinA + dy * cosA
-                                )
                                 for i in 0..<appState.calibrationPoints.count {
                                     let old = appState.calibrationPoints[i]
-                                    let newPos = CGPoint(x: old.x + screenOffset.width, y: old.y + screenOffset.height)
+                                    let newPos = CGPoint(
+                                        x: old.x + value.translation.width,
+                                        y: old.y + value.translation.height
+                                    )
                                     appState.updatePointPosition(index: i, newPosition: newPos)
                                 }
                                 draggingLine = false
