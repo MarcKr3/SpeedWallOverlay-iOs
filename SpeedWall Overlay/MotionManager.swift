@@ -35,7 +35,12 @@ class MotionManager: ObservableObject {
             if delta < -Double.pi { delta += 2 * Double.pi }
             self.smoothedRoll += delta * self.smoothing
 
-            self.rollCorrection = Angle(radians: -self.smoothedRoll)
+            // Publish only meaningful changes: the EMA never settles exactly,
+            // and each publish re-renders the whole overlay.
+            let newCorrection = Angle(radians: -self.smoothedRoll)
+            if abs(newCorrection.degrees - self.rollCorrection.degrees) > 0.05 {
+                self.rollCorrection = newCorrection
+            }
         }
     }
 

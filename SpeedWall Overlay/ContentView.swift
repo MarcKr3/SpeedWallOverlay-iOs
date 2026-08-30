@@ -21,7 +21,7 @@ struct ContentView: View {
         GeometryReader { geometry in
             ZStack {
                 // Camera layer (always visible)
-                CameraPreview(session: cameraManager.session)
+                CameraPreview(cameraManager: cameraManager)
                     .ignoresSafeArea()
 
                 CalibrationView()
@@ -33,6 +33,13 @@ struct ContentView: View {
                     .environmentObject(cameraManager)
                     .opacity(appState.mode == .overlay ? 1 : 0)
                     .allowsHitTesting(appState.mode == .overlay)
+
+                // Startup popup
+                if appState.showWelcome {
+                    WelcomeOverlay()
+                        .transition(.opacity)
+                        .zIndex(2)
+                }
             }
             .animation(.easeOut(duration: 0.3), value: appState.mode)
             .onAppear {
@@ -53,7 +60,10 @@ struct ContentView: View {
                 cameraManager.start()
             }
         }
-        .alert("Camera Error", isPresented: .constant(cameraManager.error != nil)) {
+        .alert("Camera Error", isPresented: Binding(
+            get: { cameraManager.error != nil },
+            set: { if !$0 { cameraManager.error = nil } }
+        )) {
             Button("OK") {
                 cameraManager.error = nil
             }

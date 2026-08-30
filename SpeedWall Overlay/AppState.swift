@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Combine
 
 /// Represents a calibration point tapped by the user
@@ -32,6 +33,51 @@ enum DistanceUnit: String, CaseIterable {
             return value * 0.3048
         }
     }
+}
+
+/// Parses user-entered distance values
+enum DistanceInput {
+    /// Accepts both "." and "," as decimal separator: the decimal pad inserts
+    /// the locale's separator, but Double(String) only accepts ".".
+    static func parse(_ text: String) -> Double? {
+        let normalized = text
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(normalized), value.isFinite, value > 0 else { return nil }
+        return value
+    }
+}
+
+extension Color {
+    /// Re-resolves the color in sRGB. The system color picker returns pure
+    /// white/gray as 2-component grayscale-space colors, which the template
+    /// image tint path can misrender as black.
+    func normalizedToSRGB() -> Color {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a) else { return self }
+        return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
+    }
+}
+
+/// Preset overlay colors. Applying one is instant; the system color picker
+/// stays available for custom colors, but its first open in a process is
+/// slow (~3.5 s on the simulator), so it is not the primary control.
+enum OverlayPalette {
+    struct Preset: Equatable {
+        let name: String
+        let color: Color
+    }
+
+    static let presets: [Preset] = [
+        Preset(name: "White", color: Color(.sRGB, red: 1, green: 1, blue: 1)),
+        Preset(name: "Yellow", color: Color(.sRGB, red: 1, green: 0.92, blue: 0.23)),
+        Preset(name: "Orange", color: Color(.sRGB, red: 1, green: 0.6, blue: 0)),
+        Preset(name: "Red", color: Color(.sRGB, red: 1, green: 0.23, blue: 0.19)),
+        Preset(name: "Magenta", color: Color(.sRGB, red: 1, green: 0.18, blue: 0.9)),
+        Preset(name: "Green", color: Color(.sRGB, red: 0.2, green: 0.9, blue: 0.3)),
+        Preset(name: "Cyan", color: Color(.sRGB, red: 0.2, green: 0.9, blue: 1)),
+        Preset(name: "Black", color: Color(.sRGB, red: 0, green: 0, blue: 0)),
+    ]
 }
 
 /// Calibration state tracking
@@ -85,7 +131,36 @@ class AppState: ObservableObject {
     @Published var firstCalibrationPoint: CalibrationPoint?
     @Published var secondCalibrationPoint: CalibrationPoint?
 
+    // MARK: - Welcome Popup
+
+    /// UserDefaults key written by "Don't show again" on the startup popup.
+    static let hideWelcomeKey = "hideWelcomePopup"
+
+    private let defaults: UserDefaults
+
+    /// Whether the startup popup is visible. True on every launch until the
+    /// user checks "Don't show again".
+    @Published var showWelcome: Bool
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        showWelcome = !defaults.bool(forKey: Self.hideWelcomeKey)
+    }
+
+    /// Close the startup popup, optionally for good.
+    func dismissWelcome(dontShowAgain: Bool) {
+        if dontShowAgain {
+            defaults.set(true, forKey: Self.hideWelcomeKey)
+        }
+        withAnimation(.easeOut(duration: 0.3)) {
+            showWelcome = false
+        }
+    }
+
     // MARK: - Calibration Methods
+
+    /// Points closer than this produce a degenerate px/m scale
+    static let minimumCalibrationPixelDistance: CGFloat = 20
 
     /// Record a tap during calibration
     func recordCalibrationTap(at position: CGPoint) {
@@ -96,6 +171,8 @@ class AppState: ObservableObject {
             calibrationState = .waitingForSecondPoint(firstPoint: point)
 
         case .waitingForSecondPoint(let firstPoint):
+            guard distance(from: firstPoint.screenPosition, to: position)
+                    >= Self.minimumCalibrationPixelDistance else { return }
             let point = CalibrationPoint(screenPosition: position, timestamp: Date())
             secondCalibrationPoint = point
             calibrationState = .waitingForDistance(firstPoint: firstPoint, secondPoint: point)
@@ -107,25 +184,29 @@ class AppState: ObservableObject {
 
     /// Set the known distance and complete calibration
     func setKnownDistance(_ meters: Double) {
-        guard let first = firstCalibrationPoint,
+        guard meters.isFinite, meters > 0,
+              let first = firstCalibrationPoint,
               let second = secondCalibrationPoint else { return }
 
+        let pixelDistance = distance(from: first.screenPosition, to: second.screenPosition)
+        guard pixelDistance > 0 else { return }
+
         knownDistanceMeters = meters
-
-        // Calculate pixel distance between the two points
-        let dx = second.screenPosition.x - first.screenPosition.x
-        let dy = second.screenPosition.y - first.screenPosition.y
-        let pixelDistance = sqrt(dx * dx + dy * dy)
-
-        // Calculate pixels per meter
         pixelsPerMeter = pixelDistance / CGFloat(meters)
-
         calibrationState = .complete
     }
 
     /// Update a calibration point position and recalculate px/m
     func updatePointPosition(index: Int, newPosition: CGPoint) {
         guard calibrationState == .complete else { return }
+
+        let other = index == 0 ? secondCalibrationPoint : firstCalibrationPoint
+        if let other = other,
+           distance(from: other.screenPosition, to: newPosition)
+            < Self.minimumCalibrationPixelDistance {
+            return
+        }
+
         if index == 0 {
             firstCalibrationPoint?.screenPosition = newPosition
         } else {
@@ -136,10 +217,14 @@ class AppState: ObservableObject {
         guard let first = firstCalibrationPoint,
               let second = secondCalibrationPoint,
               knownDistanceMeters > 0 else { return }
-        let dx = second.screenPosition.x - first.screenPosition.x
-        let dy = second.screenPosition.y - first.screenPosition.y
-        let pixelDistance = sqrt(dx * dx + dy * dy)
+        let pixelDistance = distance(from: first.screenPosition, to: second.screenPosition)
         pixelsPerMeter = pixelDistance / CGFloat(knownDistanceMeters)
+    }
+
+    private func distance(from a: CGPoint, to b: CGPoint) -> CGFloat {
+        let dx = b.x - a.x
+        let dy = b.y - a.y
+        return sqrt(dx * dx + dy * dy)
     }
 
     /// Reset calibration

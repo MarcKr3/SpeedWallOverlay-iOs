@@ -181,40 +181,37 @@ struct CalibrationView: View {
             
             // About overlay
             if showAbout {
-                VStack(spacing: 0) {
-                    Spacer()
-                    VStack(spacing: 16) {
-                        Text("SpeedWall Overlay")
-                            .font(.title2.bold())
-                        Text("1. Calibrate to a known distance \n\n 2. Speed-Route Overlay for easy setup.")
-                            .font(.subheadline)
-                            .multilineTextAlignment(.center)
-                            .foregroundColor(.secondary)
-                        Divider()
-                        Text("Version 1.0")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Button("Close") { withAnimation { showAbout = false } }
-                            .buttonStyle(.borderedProminent)
-                    }
-                    .padding(30)
-                    .background(.regularMaterial)
-                    .cornerRadius(20)
-                    .padding()
+                InfoCardOverlay(placement: .bottom) {
+                    Text("SpeedWall Overlay")
+                        .font(.title2.bold())
+                    Text("1. Calibrate to a known distance \n\n 2. Speed-Route Overlay for easy setup.")
+                        .font(.subheadline)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary)
+                    Divider()
+                    StaccatoPromoSection()
+                    Button("Close") { withAnimation { showAbout = false } }
+                        .buttonStyle(.borderedProminent)
+                } corner: {
+                    Text("Version \(AppVersion.marketing)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(12)
                 }
-                .background(Color.black.opacity(0.5))
                 .transition(.opacity)
             }
 
             // Distance input sheet
             if showDistanceInput {
                 DistanceInputSheet(
-                    distanceInput: $appState.distanceInputText,
-                    selectedUnit: $appState.selectedDistanceUnit,
+                    initialInput: appState.distanceInputText,
+                    initialUnit: appState.selectedDistanceUnit,
                     onConfirm: confirmDistance,
                     onCancel: {
                         if case .waitingForDistance = appState.calibrationState {
-                            appState.setKnownDistance(1.0)
+                            // Complete with the last confirmed distance so the user
+                            // is not stuck; stored text/unit still match that value.
+                            appState.setKnownDistance(appState.knownDistanceMeters)
                         }
                         withAnimation { showDistanceInput = false }
                     }
@@ -303,10 +300,10 @@ struct CalibrationView: View {
         }
     }
     
-    private func confirmDistance() {
-        guard let value = Double(appState.distanceInputText), value > 0 else { return }
-        let meters = appState.selectedDistanceUnit.toMeters(value)
-        appState.setKnownDistance(meters)
+    private func confirmDistance(value: Double, text: String, unit: DistanceUnit) {
+        appState.distanceInputText = text
+        appState.selectedDistanceUnit = unit
+        appState.setKnownDistance(unit.toMeters(value))
         withAnimation { showDistanceInput = false }
     }
 }
@@ -392,11 +389,30 @@ struct InstructionBanner: View {
 // MARK: - Distance Input Sheet
 
 struct DistanceInputSheet: View {
-    @Binding var distanceInput: String
-    @Binding var selectedUnit: DistanceUnit
-    let onConfirm: () -> Void
+    let onConfirm: (Double, String, DistanceUnit) -> Void
     let onCancel: () -> Void
-    
+
+    // Draft state: edits reach AppState only through onConfirm,
+    // so Cancel never leaves half-typed values behind.
+    @State private var draftInput: String
+    @State private var draftUnit: DistanceUnit
+
+    init(
+        initialInput: String,
+        initialUnit: DistanceUnit,
+        onConfirm: @escaping (Double, String, DistanceUnit) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.onConfirm = onConfirm
+        self.onCancel = onCancel
+        _draftInput = State(initialValue: initialInput)
+        _draftUnit = State(initialValue: initialUnit)
+    }
+
+    private var parsedValue: Double? {
+        DistanceInput.parse(draftInput)
+    }
+
     var body: some View {
         ZStack {
             Color.black.opacity(0.5)
@@ -410,12 +426,17 @@ struct DistanceInputSheet: View {
                         .font(.headline)
 
                     HStack {
-                        TextField("Distance", text: $distanceInput)
+                        TextField("Distance", text: $draftInput)
                             .textFieldStyle(.roundedBorder)
                             .keyboardType(.decimalPad)
                             .frame(width: 100)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .stroke(Color.red, lineWidth: 1)
+                                    .opacity(draftInput.isEmpty || parsedValue != nil ? 0 : 1)
+                            )
 
-                        Picker("Unit", selection: $selectedUnit) {
+                        Picker("Unit", selection: $draftUnit) {
                             ForEach(DistanceUnit.allCases, id: \.self) { unit in
                                 Text(unit.rawValue).tag(unit)
                             }
@@ -431,9 +452,11 @@ struct DistanceInputSheet: View {
                         .foregroundColor(.red)
 
                         Button("Confirm") {
-                            onConfirm()
+                            guard let value = parsedValue else { return }
+                            onConfirm(value, draftInput, draftUnit)
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(parsedValue == nil)
                     }
                 }
                 .padding(30)

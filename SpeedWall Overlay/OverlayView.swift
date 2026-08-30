@@ -16,6 +16,7 @@ struct OverlayView: View {
 
     // Controls visibility
     @State private var showControls: Bool = true
+    @State private var showPalette: Bool = false
 
     // Flash feedback for screenshot
     @State private var showFlash: Bool = false
@@ -30,8 +31,12 @@ struct OverlayView: View {
         GeometryReader { geometry in
             let screenWidth = geometry.size.width
             let screenHeight = geometry.size.height
-            let renderedWidth = wallWidthMeters * appState.pixelsPerMeter
-            let renderedHeight = wallHeightMeters * appState.pixelsPerMeter
+            // Freeze layout at zero while hidden: calibration drags mutate
+            // pixelsPerMeter per touch event, and the wall layers must not
+            // re-layout at full size in an invisible view.
+            let layoutPPM = appState.mode == .overlay ? appState.pixelsPerMeter : 0
+            let renderedWidth = wallWidthMeters * layoutPPM
+            let renderedHeight = wallHeightMeters * layoutPPM
 
             overlayLayers(renderedWidth: renderedWidth, renderedHeight: renderedHeight)
                 .rotationEffect(appState.autoLevel ? motionManager.rollCorrection : .zero)
@@ -69,31 +74,37 @@ struct OverlayView: View {
                             withAnimation { showControls.toggle() }
                         }
                 )
-                .onAppear {
-                    // Force ColorPicker to open on the custom-color tab instead of the grid tab.
-                    // "UICPSelectedCustomSegment" is an internal UIKit key; value 1 = spectrum/slider tab.
-                    UserDefaults.standard.set(1, forKey: "UICPSelectedCustomSegment")
-                }
                 .onChangeCompat(of: appState.mode) { newMode in
+                    // Sizes computed from appState directly: the captured
+                    // renderedWidth/Height are from the pre-transition layout.
+                    let fullWidth = wallWidthMeters * appState.pixelsPerMeter
+                    let fullHeight = wallHeightMeters * appState.pixelsPerMeter
                     if newMode == .overlay {
                         if appState.autoLevel { motionManager.start() }
-                        hasSetInitialPosition = true
-                        offset.height = screenHeight / 3 - renderedHeight / 2
-                        clampOffset(renderedWidth: renderedWidth, renderedHeight: renderedHeight,
+                        if !hasSetInitialPosition {
+                            hasSetInitialPosition = true
+                            offset.height = screenHeight / 3 - fullHeight / 2
+                        }
+                        clampOffset(renderedWidth: fullWidth, renderedHeight: fullHeight,
                                     screenWidth: screenWidth, screenHeight: screenHeight)
                     } else {
                         motionManager.stop()
-                        hasSetInitialPosition = false
                     }
+                }
+                .onChangeCompat(of: appState.pixelsPerMeter) { _ in
+                    // Recalibration invalidates the saved pan position
+                    hasSetInitialPosition = false
                 }
                 .onChangeCompat(of: appState.autoLevel) { enabled in
                     if appState.mode == .overlay {
                         enabled ? motionManager.start() : motionManager.stop()
                     }
                 }
-                .onChange(of: geometry.size) { _ in
-                    clampOffset(renderedWidth: renderedWidth, renderedHeight: renderedHeight,
-                                screenWidth: geometry.size.width, screenHeight: geometry.size.height)
+                .onChangeCompat(of: geometry.size) { newSize in
+                    guard appState.mode == .overlay else { return }
+                    clampOffset(renderedWidth: wallWidthMeters * appState.pixelsPerMeter,
+                                renderedHeight: wallHeightMeters * appState.pixelsPerMeter,
+                                screenWidth: newSize.width, screenHeight: newSize.height)
                 }
                 .alert("Screenshot Failed", isPresented: $showSaveError) {
                     Button("Settings") {
@@ -109,46 +120,38 @@ struct OverlayView: View {
 
     // MARK: - Overlay Layers
 
+    // Fill+mask instead of .renderingMode(.template) + .foregroundColor:
+    // the live CA template-tint path renders a pure white tint as the
+    // artwork's own dark color (verified by pixel probe on simulator).
+    private func tintedLayer(_ img: UIImage, width: CGFloat, height: CGFloat) -> some View {
+        Rectangle()
+            .fill(appState.overlayColor)
+            .frame(width: width, height: height)
+            .mask(Image(uiImage: img).resizable())
+    }
+
     @ViewBuilder
     private func overlayLayers(renderedWidth: CGFloat, renderedHeight: CGFloat) -> some View {
         ZStack {
             // Holds layer (always visible)
             if let img = UIImage(named: "overlay") {
-                Image(uiImage: img)
-                    .renderingMode(.template)
-                    .resizable()
-                    .foregroundColor(appState.overlayColor)
-                    .frame(width: renderedWidth, height: renderedHeight)
+                tintedLayer(img, width: renderedWidth, height: renderedHeight)
             }
 
-            // Grid layer — always loaded, opacity toggled
-            if let img = UIImage(named: "grid") {
-                Image(uiImage: img)
-                    .renderingMode(.template)
-                    .resizable()
-                    .foregroundColor(appState.overlayColor)
-                    .frame(width: renderedWidth, height: renderedHeight)
-                    .drawingGroup()
-                    // NB: 0.01 (not 0) keeps the .drawingGroup() Metal texture alive;
-                    // opacity(0) lets SwiftUI skip the render pass, causing first-toggle stutter.
-                    .opacity(appState.showGrid ? 1 : 0.01)
-                    .animation(.easeOut(duration: 0.15), value: appState.showGrid)
+            // Grid layer
+            if appState.showGrid, let img = UIImage(named: "grid") {
+                tintedLayer(img, width: renderedWidth, height: renderedHeight)
+                    .transition(.opacity)
             }
 
-            // Labels layer — always loaded, opacity toggled
-            if let img = UIImage(named: "labels") {
-                Image(uiImage: img)
-                    .renderingMode(.template)
-                    .resizable()
-                    .foregroundColor(appState.overlayColor)
-                    .frame(width: renderedWidth, height: renderedHeight)
-                    .drawingGroup()
-                    // NB: 0.01 (not 0) keeps the .drawingGroup() Metal texture alive;
-                    // opacity(0) lets SwiftUI skip the render pass, causing first-toggle stutter.
-                    .opacity(appState.showLabels ? 1 : 0.01)
-                    .animation(.easeOut(duration: 0.15), value: appState.showLabels)
+            // Labels layer
+            if appState.showLabels, let img = UIImage(named: "labels") {
+                tintedLayer(img, width: renderedWidth, height: renderedHeight)
+                    .transition(.opacity)
             }
         }
+        .animation(.easeOut(duration: 0.15), value: appState.showGrid)
+        .animation(.easeOut(duration: 0.15), value: appState.showLabels)
     }
 
     // MARK: - Controls Overlay
@@ -171,11 +174,18 @@ struct OverlayView: View {
 
                 // Layer toggles
                 HStack(spacing: 10) {
-                    ColorPicker("", selection: $appState.overlayColor, supportsOpacity: false)
-                        .labelsHidden()
-                        .scaleEffect(0.9)
-                        .frame(width: 40, height: 40)
-                        .accessibilityLabel("Overlay color")
+                    Button(action: {
+                        withAnimation(.easeOut(duration: 0.15)) { showPalette.toggle() }
+                    }) {
+                        Circle()
+                            .fill(appState.overlayColor)
+                            .frame(width: 24, height: 24)
+                            .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                            .padding(8)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                    }
+                    .accessibilityLabel("Overlay color")
 
                     Button(action: { appState.showGrid.toggle() }) {
                         Image(systemName: "grid")
@@ -201,6 +211,13 @@ struct OverlayView: View {
             }
             .padding(.horizontal)
             .padding(.top, 10)
+
+            if showPalette {
+                paletteRow()
+                    .padding(.top, 8)
+                    .padding(.horizontal)
+                    .transition(.opacity)
+            }
 
             Spacer()
 
@@ -301,6 +318,45 @@ struct OverlayView: View {
         }
     }
 
+    // MARK: - Color Palette
+
+    private func paletteRow() -> some View {
+        HStack {
+            Spacer()
+            HStack(spacing: 8) {
+                ForEach(OverlayPalette.presets, id: \.name) { preset in
+                    let selected = appState.overlayColor == preset.color
+                    Button(action: {
+                        appState.overlayColor = preset.color
+                        withAnimation(.easeOut(duration: 0.15)) { showPalette = false }
+                    }) {
+                        Circle()
+                            .fill(preset.color)
+                            .frame(width: 24, height: 24)
+                            .overlay(
+                                Circle().stroke(Color.white, lineWidth: selected ? 3 : 1)
+                            )
+                    }
+                    .accessibilityLabel(Text(LocalizedStringKey(preset.name)))
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+
+                // Custom colors: the system picker. Its first open is slow.
+                ColorPicker("", selection: Binding(
+                    get: { appState.overlayColor },
+                    set: { appState.overlayColor = $0.normalizedToSRGB() }
+                ), supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 32, height: 32)
+                    .accessibilityLabel("Custom overlay color")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial)
+            .clipShape(Capsule())
+        }
+    }
+
     // MARK: - Screenshot
 
     private func takeScreenshot() {
@@ -342,21 +398,24 @@ struct OverlayView: View {
                     Self.restoreBackgrounds(saved)
                     previewView?.isHidden = false
                 }
-                guard let imageData = image.pngData() else { return }
-                PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-                    guard status == .authorized || status == .limited else {
-                        DispatchQueue.main.async {
-                            showSaveError = true
-                        }
-                        return
-                    }
-                    PHPhotoLibrary.shared().performChanges({
-                        let request = PHAssetCreationRequest.forAsset()
-                        request.addResource(with: .photo, data: imageData, options: nil)
-                    }) { success, error in
-                        if !success {
+                // PNG encoding takes hundreds of ms — keep it off the main thread
+                DispatchQueue.global(qos: .userInitiated).async {
+                    guard let imageData = image.pngData() else { return }
+                    PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                        guard status == .authorized || status == .limited else {
                             DispatchQueue.main.async {
                                 showSaveError = true
+                            }
+                            return
+                        }
+                        PHPhotoLibrary.shared().performChanges({
+                            let request = PHAssetCreationRequest.forAsset()
+                            request.addResource(with: .photo, data: imageData, options: nil)
+                        }) { success, error in
+                            if !success {
+                                DispatchQueue.main.async {
+                                    showSaveError = true
+                                }
                             }
                         }
                     }

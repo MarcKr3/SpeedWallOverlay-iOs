@@ -24,13 +24,17 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     private let videoDataQueue = DispatchQueue(label: "camera.videodata.queue")
     private let ciContext = CIContext()
     private let frameLock = NSLock()
-    private var _latestFrame: CGImage?
+    private var _latestPixelBuffer: CVPixelBuffer?
 
-    /// The most recent camera frame as a CGImage (thread-safe)
+    /// The most recent camera frame as a CGImage (thread-safe).
+    /// Conversion happens here, on demand — not per captured frame.
     var latestFrame: CGImage? {
         frameLock.lock()
-        defer { frameLock.unlock() }
-        return _latestFrame
+        let pixelBuffer = _latestPixelBuffer
+        frameLock.unlock()
+        guard let pixelBuffer = pixelBuffer else { return nil }
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        return ciContext.createCGImage(ciImage, from: ciImage.extent)
     }
     
     // MARK: - Error Types
@@ -65,7 +69,13 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         case .authorized:
             return true
         case .notDetermined:
-            return await AVCaptureDevice.requestAccess(for: .video)
+            let granted = await AVCaptureDevice.requestAccess(for: .video)
+            if !granted {
+                await MainActor.run {
+                    self.error = .permissionDenied
+                }
+            }
+            return granted
         case .denied, .restricted:
             await MainActor.run {
                 self.error = .permissionDenied
@@ -143,10 +153,8 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
         frameLock.lock()
-        _latestFrame = cgImage
+        _latestPixelBuffer = pixelBuffer
         frameLock.unlock()
     }
 
@@ -176,29 +184,43 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         }
     }
 
+    /// Keep captured frames aligned with the interface orientation so
+    /// screenshots composite correctly in landscape.
+    func setVideoOrientation(_ orientation: AVCaptureVideoOrientation) {
+        sessionQueue.async { [weak self] in
+            guard let self = self,
+                  let connection = self.videoDataOutput.connection(with: .video),
+                  connection.videoOrientation != orientation else { return }
+            connection.videoOrientation = orientation
+        }
+    }
+
 }
 
 // MARK: - SwiftUI Camera Preview
 
 struct CameraPreview: UIViewRepresentable {
-    let session: AVCaptureSession
-    
+    let cameraManager: CameraManager
+
     func makeUIView(context: Context) -> VideoPreviewView {
         let view = VideoPreviewView()
         view.backgroundColor = .black
-        view.videoPreviewLayer.session = session
+        view.videoPreviewLayer.session = cameraManager.session
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
         return view
     }
-    
+
     func updateUIView(_ uiView: VideoPreviewView, context: Context) {
         // Update connection orientation if needed
         if let connection = uiView.videoPreviewLayer.connection {
             let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene
             let interfaceOrientation = windowScene?.interfaceOrientation ?? .portrait
-            
+
             if let videoOrientation = interfaceOrientation.videoOrientation {
-                connection.videoOrientation = videoOrientation
+                if connection.videoOrientation != videoOrientation {
+                    connection.videoOrientation = videoOrientation
+                }
+                cameraManager.setVideoOrientation(videoOrientation)
             }
         }
     }
